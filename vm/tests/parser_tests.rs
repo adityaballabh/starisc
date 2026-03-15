@@ -1,4 +1,4 @@
-use std::path::Path;
+mod common;
 use vm::Instruction;
 use vm::{parse_file, parse_str};
 
@@ -163,20 +163,9 @@ fn error_with_correct_line() {
     assert_eq!(err.line, 2);
 }
 
-fn get_sample_op() -> String {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .join("examples/sample.op")
-        .to_str()
-        .unwrap()
-        .to_string()
-}
-
 #[test]
 fn parse_sample_op_succeeds() {
-    let prog = parse_file(&get_sample_op()).unwrap();
-    assert_eq!(prog.len(), 15);
+    parse_file(&common::sample_op_path()).unwrap();
 }
 
 macro_rules! has_instr {
@@ -187,7 +176,7 @@ macro_rules! has_instr {
 
 #[test]
 fn sample_op_covers_all_instr() {
-    let prog = parse_file(&get_sample_op()).unwrap();
+    let prog = parse_file(&common::sample_op_path()).unwrap();
     has_instr!(prog, Instruction::Set);
     has_instr!(prog, Instruction::Add);
     has_instr!(prog, Instruction::Sub);

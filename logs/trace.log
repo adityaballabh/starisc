@@ -1,0 +1,21 @@
+   0  SET       r3 12                 | r3=12
+   1  SET       r4 8                  | r4=8
+   2  ADD       r5 r3 r4              | r5=20
+   3  SET       r4 15                 | r4=15
+   4  MUL       r3 r4 r5              | r3=300
+   5  SET       r7 330                | r7=330
+   6  SET       r8 30                 | r8=30
+   7  SUB       r7 r7 r8              | r7=300
+   8  ASSERT_EQ r3 r7                 | passed
+   9  SET       r1 301                | r1=301
+  10  LT        r9 r3 r1              | r9=1
+  11  SET       r8 1                  | r8=1
+  12  ASSERT_EQ r9 r8                 | passed
+  13  SET       r2 55                 | r2=55
+  14  SET       r1 15                 | r1=15
+  15  MOD       r10 r2 r1             | r10=10
+  16  SET       r3 10                 | r3=10
+  17  ADD       r3 r3 r0              | no-op
+  18  ASSERT_EQ r3 r10                | passed
+
+   -  FINAL                           | r1=15  r2=55  r3=10  r4=15  r5=20  r7=300  r8=1  r9=1  r10=10

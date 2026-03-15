@@ -1,21 +1,23 @@
 # sample program with all opcodes
-SET r1 3
-SET r2 4
-ADD r3 r1 r2
+SET r3 12
+SET r4 8
+ADD r5 r3 r4
 
-SET r4 2
-MUL r5 r3 r4
-SET r6 14
-ASSERT_EQ r5 r6
+SET r4 15
+MUL r3 r4 r5
+SET r7 330
+SET r8 30
+SUB r7 r7 r8
+ASSERT_EQ r3 r7
 
-LT r7 r1 r2
+SET r1 301
+LT r9 r3 r1
 SET r8 1
-ASSERT_EQ r7 r8
-
-SUB r9 r2 r1
 ASSERT_EQ r9 r8
 
-MOD r10 r3 r2
-ASSERT_EQ r10 r1
-
-ADD r11 r10 r0
+SET r2 55
+SET r1 15
+MOD r10 r2 r1
+SET r3 10
+ADD r3 r3 r0
+ASSERT_EQ r3 r10
