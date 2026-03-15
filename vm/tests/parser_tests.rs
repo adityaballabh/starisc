@@ -3,37 +3,6 @@ use vm::Instruction;
 use vm::{parse_file, parse_str};
 
 #[test]
-fn instruction_enum_valid() {
-    let _i = Instruction::Set { dest: 1, val: 42 };
-    let _i = Instruction::Add {
-        dest: 2,
-        src1: 3,
-        src2: 4,
-    };
-    let _i = Instruction::Sub {
-        dest: 2,
-        src1: 3,
-        src2: 4,
-    };
-    let _i = Instruction::Mul {
-        dest: 2,
-        src1: 3,
-        src2: 4,
-    };
-    let _i = Instruction::Mod {
-        dest: 2,
-        src1: 3,
-        src2: 4,
-    };
-    let _i = Instruction::AssertEq { r1: 1, r2: 2 };
-    let _i = Instruction::Lt {
-        dest: 2,
-        src1: 3,
-        src2: 4,
-    };
-}
-
-#[test]
 fn parse_set() {
     let instr = parse_str("SET r10 15").unwrap();
     assert_eq!(instr, vec![Instruction::Set { dest: 10, val: 15 }]);

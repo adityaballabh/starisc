@@ -15,7 +15,7 @@ impl fmt::Display for ExecError {
     }
 }
 
-pub fn execute(prog: &[Instruction]) -> Result<(Trace, [u64; 16]), ExecError> {
+pub fn execute(prog: &[Instruction]) -> Result<(Trace, [u64; 16]), Box<ExecError>> {
     let mut registers: [u64; 16] = [0; 16];
     let mut trace = Vec::with_capacity(prog.len());
 
@@ -28,11 +28,11 @@ pub fn execute(prog: &[Instruction]) -> Result<(Trace, [u64; 16]), ExecError> {
                 let v1 = registers[*r1 as usize];
                 let v2 = registers[*r2 as usize];
                 if v1 != v2 {
-                    return Err(ExecError {
+                    return Err(Box::new(ExecError {
                         pc,
                         registers,
                         message: format!("ASSERT_EQ failed: r{}={} != r{}={}", r1, v1, r2, v2),
-                    });
+                    }));
                 }
             }
             Instruction::Lt { dest, src1, src2 } => {
@@ -58,11 +58,11 @@ pub fn execute(prog: &[Instruction]) -> Result<(Trace, [u64; 16]), ExecError> {
             Instruction::Mod { dest, src1, src2 } => {
                 let divisor = registers[*src2 as usize];
                 if divisor == 0 {
-                    return Err(ExecError {
+                    return Err(Box::new(ExecError {
                         pc,
                         registers,
                         message: "division by 0 in MOD".to_string(),
-                    });
+                    }));
                 }
                 registers[*dest as usize] = registers[*src1 as usize] % divisor;
             }

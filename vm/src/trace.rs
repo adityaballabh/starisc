@@ -1,9 +1,8 @@
 use crate::instruction::Instruction;
 use std::fmt::Write as FmtWrite;
 use std::fs;
-
-// dumping trace by default for debugging. change to false before benchmarking
-const DUMP_TRACE: bool = true;
+use std::io::Result as IoResult;
+use std::iter::once;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraceRow {
@@ -17,12 +16,9 @@ pub fn dump_trace(
     trace: &Trace,
     final_regs: &[u64; 16],
     path: &str,
-) -> std::io::Result<()> {
-    if !DUMP_TRACE {
-        return Ok(());
-    }
+) -> IoResult<()> {
     let mut out = String::new();
-    let all_rows: Vec<[u64; 16]> = std::iter::once([0; 16])
+    let all_rows: Vec<[u64; 16]> = once([0; 16])
         .chain(trace.iter().map(|r| r.registers))
         .collect();
 
