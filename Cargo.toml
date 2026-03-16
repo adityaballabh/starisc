@@ -1,0 +1,3 @@
+[workspace]
+members = ["vm"]
+resolver = "2"
