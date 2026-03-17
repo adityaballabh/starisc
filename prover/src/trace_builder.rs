@@ -27,8 +27,8 @@ pub fn build_trace(prog: &[Instruction], vm_trace: &Trace) -> TraceTable<Felt> {
     for (i, (instr, row)) in prog.iter().zip(vm_trace.iter()).enumerate() {
         let out_row = i + 1;
 
-        for r in 0..NUM_REGISTERS {
-            cols[r][out_row] = Felt::from(row.registers[r]);
+        for (r, col) in cols.iter_mut().enumerate().take(NUM_REGISTERS) {
+            col[out_row] = Felt::from(row.registers[r]);
         }
 
         let prev_regs: [u64; 16] = from_fn(|r| cols[r][out_row - 1].as_int() as u64);
@@ -63,8 +63,8 @@ pub fn build_trace(prog: &[Instruction], vm_trace: &Trace) -> TraceTable<Felt> {
 
     if n > 0 {
         let last_regs = &vm_trace[n - 1].registers;
-        for r in 0..NUM_REGISTERS {
-            cols[r][(n + 1)..trace_len].fill(Felt::from(last_regs[r]));
+        for (r, col) in cols.iter_mut().enumerate().take(NUM_REGISTERS) {
+            col[(n + 1)..trace_len].fill(Felt::from(last_regs[r]));
         }
     }
     TraceTable::init(cols)

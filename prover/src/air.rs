@@ -23,10 +23,21 @@ impl Air for VmAir {
     fn new(trace_info: TraceInfo, pub_inputs: PublicInputs, options: ProofOptions) -> Self {
         let trace_len = pub_inputs.trace_len;
 
-        // all constraints are degree 1, except res (RES_COL) which can have degree 2 (for MUL)
-        let mut degrees =
-            vec![TransitionConstraintDegree::with_cycles(1, vec![trace_len]); NUM_CONSTRAINTS];
-        degrees[RES_COL] = TransitionConstraintDegree::with_cycles(2, vec![trace_len]);
+        // constraints use periodic columns by default
+        // use new(1) only if the periodic column is all zeros (which makes the constraint polynomial 0)
+        let cyclic = |base| TransitionConstraintDegree::with_cycles(base, vec![trace_len]);
+        let mut degrees = vec![cyclic(1); NUM_CONSTRAINTS];
+        for (j, degree) in degrees.iter_mut().enumerate().take(NUM_REGISTERS) {
+            if !pub_inputs.dest_mask[j] {
+                *degree = TransitionConstraintDegree::new(1);
+            }
+        }
+        if pub_inputs.has_mul {
+            degrees[RES_COL] = cyclic(2);
+        }
+        if !pub_inputs.has_assert_eq {
+            degrees[NUM_CONSTRAINTS - 1] = TransitionConstraintDegree::new(1);
+        }
 
         let num_assertions = TRACE_WIDTH;
         let context = AirContext::new(trace_info, degrees, num_assertions, options);

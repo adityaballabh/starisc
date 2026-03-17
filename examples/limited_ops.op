@@ -1,0 +1,9 @@
+# limited program using constrained opcodes only (no MOD/LT)
+
+SET r1 3
+SET r2 4
+ADD r3 r1 r2
+MUL r4 r1 r2
+SUB r5 r4 r3
+SET r6 5
+ASSERT_EQ r5 r6

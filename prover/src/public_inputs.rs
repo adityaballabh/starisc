@@ -22,10 +22,14 @@ pub const P_CONST: usize = 56;
 pub struct PublicInputs {
     pub prog: Vec<Instruction>,
     pub trace_len: usize,
+    // precomputed flags to set constraint degrees
+    pub dest_mask: [bool; 16], // true if reg used as dest
+    pub has_mul: bool,
+    pub has_assert_eq: bool,
 }
 
 fn set_selectors(
-    cols: &mut Vec<Vec<Felt>>,
+    cols: &mut [Vec<Felt>],
     i: usize,
     flag: usize,
     dest: Option<u8>,
@@ -46,7 +50,30 @@ fn set_selectors(
 
 impl PublicInputs {
     pub fn new(prog: Vec<Instruction>, trace_len: usize) -> Self {
-        Self { prog, trace_len }
+        let mut dest_mask = [false; 16];
+        let mut has_mul = false;
+        let mut has_assert_eq = false;
+        for instr in &prog {
+            match instr {
+                Instruction::Set { dest, .. }
+                | Instruction::Add { dest, .. }
+                | Instruction::Sub { dest, .. }
+                | Instruction::Mod { dest, .. }
+                | Instruction::Lt { dest, .. } => dest_mask[*dest as usize] = true,
+                Instruction::Mul { dest, .. } => {
+                    dest_mask[*dest as usize] = true;
+                    has_mul = true;
+                }
+                Instruction::AssertEq { .. } => has_assert_eq = true,
+            }
+        }
+        Self {
+            prog,
+            trace_len,
+            dest_mask,
+            has_mul,
+            has_assert_eq,
+        }
     }
 
     pub fn build_periodic_columns(&self) -> Vec<Vec<Felt>> {
@@ -79,11 +106,10 @@ impl PublicInputs {
             }
         }
         // NOP padding
-        for i in self.prog.len()..n {
-            cols[P_IS_NOP][i] = Felt::ONE;
-            cols[P_SRC1_BASE][i] = Felt::ONE; // point to r0
-            cols[P_SRC2_BASE][i] = Felt::ONE;
-        }
+        let pad_start = self.prog.len();
+        cols[P_IS_NOP][pad_start..n].fill(Felt::ONE);
+        cols[P_SRC1_BASE][pad_start..n].fill(Felt::ONE); // point to r0
+        cols[P_SRC2_BASE][pad_start..n].fill(Felt::ONE);
         cols
     }
 }
