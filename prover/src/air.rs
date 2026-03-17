@@ -2,7 +2,10 @@ use crate::public_inputs::{
     PublicInputs, P_CONST, P_IS_ADD, P_IS_ASSERT_EQ, P_IS_MUL, P_IS_SET, P_IS_SUB, P_RES_BASE,
     P_SRC1_BASE, P_SRC2_BASE,
 };
-use crate::{Felt, NUM_CONSTRAINTS, NUM_REGISTERS, RES_COL, SRC1_COL, SRC2_COL, TRACE_WIDTH};
+use crate::{
+    Felt, ASSERT_EQ_CON, LT_BITS_CON_BASE, NUM_CONSTRAINTS, NUM_LT_CONSTRAINTS, NUM_REGISTERS,
+    RES_COL, SRC1_COL, SRC2_COL, TRACE_WIDTH,
+};
 use winterfell::math::FieldElement;
 use winterfell::{
     Air, AirContext, Assertion, EvaluationFrame, ProofOptions, TraceInfo,
@@ -36,7 +39,14 @@ impl Air for VmAir {
             degrees[RES_COL] = cyclic(2);
         }
         if !pub_inputs.has_assert_eq {
-            degrees[NUM_CONSTRAINTS - 1] = TransitionConstraintDegree::new(1);
+            degrees[ASSERT_EQ_CON] = TransitionConstraintDegree::new(1);
+        }
+        for i in 0..NUM_LT_CONSTRAINTS {
+            degrees[LT_BITS_CON_BASE + i] = if pub_inputs.has_lt {
+                cyclic(2)
+            } else {
+                TransitionConstraintDegree::new(1)
+            };
         }
 
         let num_assertions = TRACE_WIDTH;
@@ -89,7 +99,7 @@ impl Air for VmAir {
         result[SRC2_COL] = next_src2 - exp_s2;
 
         // src1 and src2 should be equal for is_assert_eq
-        result[NUM_CONSTRAINTS - 1] = curr_pub_in[P_IS_ASSERT_EQ] * (next_src1 - next_src2);
+        result[ASSERT_EQ_CON] = curr_pub_in[P_IS_ASSERT_EQ] * (next_src1 - next_src2);
     }
 
     // all trace cols should be 0 for row 0

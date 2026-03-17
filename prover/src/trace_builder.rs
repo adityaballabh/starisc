@@ -1,4 +1,6 @@
-use crate::{Felt, NUM_REGISTERS, RES_COL, SRC1_COL, SRC2_COL, TRACE_WIDTH};
+use crate::{
+    Felt, LT_BITS_BASE, NUM_LT_BITS, NUM_REGISTERS, RES_COL, SRC1_COL, SRC2_COL, TRACE_WIDTH,
+};
 use std::array::from_fn;
 use vm::{Instruction, Trace};
 use winterfell::math::{FieldElement, StarkField};
@@ -44,12 +46,12 @@ pub fn build_trace(prog: &[Instruction], vm_trace: &Trace) -> TraceTable<Felt> {
             Instruction::Mul { src1, src2, .. } => {
                 perform_binary_op(&prev_regs, *src1, *src2, u64::wrapping_mul)
             }
-            Instruction::Mod { src1, src2, .. } => {
-                perform_binary_op(&prev_regs, *src1, *src2, u64::wrapping_rem)
-            }
             Instruction::AssertEq { r1, r2 } => {
                 let (a, b) = get_ops(&prev_regs, *r1, *r2);
                 (a, b, 0)
+            }
+            Instruction::Mod { src1, src2, .. } => {
+                perform_binary_op(&prev_regs, *src1, *src2, u64::wrapping_rem)
             }
             Instruction::Lt { src1, src2, .. } => {
                 let (a, b) = get_ops(&prev_regs, *src1, *src2);
@@ -59,6 +61,14 @@ pub fn build_trace(prog: &[Instruction], vm_trace: &Trace) -> TraceTable<Felt> {
         cols[SRC1_COL][out_row] = Felt::from(s1);
         cols[SRC2_COL][out_row] = Felt::from(s2);
         cols[RES_COL][out_row] = Felt::from(res);
+
+        // bit decomposition of diff for lt rows
+        if matches!(instr, Instruction::Lt { .. }) {
+            let diff = if res == 1 { s2 - s1 - 1 } else { s1 - s2 };
+            for bit in 0..NUM_LT_BITS {
+                cols[LT_BITS_BASE + bit][out_row] = Felt::from((diff >> bit) & 1);
+            }
+        }
     }
 
     if n > 0 {
