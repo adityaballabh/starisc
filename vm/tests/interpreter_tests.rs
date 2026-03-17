@@ -128,7 +128,7 @@ fn trace_rows_persist() {
 
 #[test]
 fn sample_op_exec() {
-    let prog = parse_file(&common::sample_op_path()).unwrap();
+    let prog = parse_file(&common::get_op_path("all_ops")).unwrap();
     let (trace, _) = execute(&prog).unwrap();
     assert_eq!(trace.len(), prog.len());
 }

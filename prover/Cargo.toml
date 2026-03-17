@@ -1,0 +1,10 @@
+[package]
+name = "prover"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+vm = { path = "../vm" }
+winterfell = "0.11"
+
+[dev-dependencies]
