@@ -2,9 +2,9 @@ use crate::{Felt, NUM_REGISTERS, RES_COL, SRC1_COL, SRC2_COL, TRACE_WIDTH};
 use std::array::from_fn;
 use vm::{Instruction, Trace};
 use winterfell::math::{FieldElement, StarkField};
-use winterfell::matrix::ColMatrix;
+use winterfell::TraceTable;
 
-// +1 for initial row. winterfell constraint: min 8 and power of 2
+// +1 for initial row. winterfell restriction: min 8 and power of 2
 pub fn get_trace_len(prog: &[Instruction]) -> usize {
     (prog.len() + 1).next_power_of_two().max(8)
 }
@@ -18,7 +18,7 @@ fn perform_binary_op(regs: &[u64; 16], s1: u8, s2: u8, op: fn(u64, u64) -> u64) 
     (a, b, op(a, b))
 }
 
-pub fn build_trace(prog: &[Instruction], vm_trace: &Trace) -> ColMatrix<Felt> {
+pub fn build_trace(prog: &[Instruction], vm_trace: &Trace) -> TraceTable<Felt> {
     assert_eq!(prog.len(), vm_trace.len());
     let n = prog.len();
     let trace_len = get_trace_len(prog);
@@ -67,5 +67,5 @@ pub fn build_trace(prog: &[Instruction], vm_trace: &Trace) -> ColMatrix<Felt> {
             cols[r][(n + 1)..trace_len].fill(Felt::from(last_regs[r]));
         }
     }
-    ColMatrix::new(cols)
+    TraceTable::init(cols)
 }
