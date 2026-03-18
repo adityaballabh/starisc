@@ -1,9 +1,12 @@
-# limited program using constrained opcodes only (no MOD/LT)
+# limited program using constrained opcodes only (no MOD)
 
-SET r1 3
-SET r2 4
-ADD r3 r1 r2
-MUL r4 r1 r2
-SUB r5 r4 r3
-SET r6 5
-ASSERT_EQ r5 r6
+SET r5 23
+SET r6 10
+ADD r7 r5 r6
+MUL r1 r7 r6
+SUB r8 r1 r5
+SET r9 307
+ASSERT_EQ r8 r9
+LT r8 r6 r5
+SET r2 1
+ASSERT_EQ r8 r2

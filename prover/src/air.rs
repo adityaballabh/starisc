@@ -1,10 +1,10 @@
 use crate::public_inputs::{
-    PublicInputs, P_CONST, P_IS_ADD, P_IS_ASSERT_EQ, P_IS_MUL, P_IS_SET, P_IS_SUB, P_RES_BASE,
-    P_SRC1_BASE, P_SRC2_BASE,
+    PublicInputs, P_CONST, P_IS_ADD, P_IS_ASSERT_EQ, P_IS_LT, P_IS_MUL, P_IS_SET, P_IS_SUB,
+    P_RES_BASE, P_SRC1_BASE, P_SRC2_BASE,
 };
 use crate::{
-    Felt, ASSERT_EQ_CON, LT_BITS_CON_BASE, NUM_CONSTRAINTS, NUM_LT_CONSTRAINTS, NUM_REGISTERS,
-    RES_COL, SRC1_COL, SRC2_COL, TRACE_WIDTH,
+    Felt, ASSERT_EQ_CON, LT_BITS_BASE, LT_BITS_CON_BASE, LT_DIFF_CON, LT_RES_BOOL_CON,
+    NUM_CONSTRAINTS, NUM_DIFF_BITS, NUM_REGISTERS, RES_COL, SRC1_COL, SRC2_COL, TRACE_WIDTH,
 };
 use winterfell::math::FieldElement;
 use winterfell::{
@@ -41,8 +41,16 @@ impl Air for VmAir {
         if !pub_inputs.has_assert_eq {
             degrees[ASSERT_EQ_CON] = TransitionConstraintDegree::new(1);
         }
-        for i in 0..NUM_LT_CONSTRAINTS {
-            degrees[LT_BITS_CON_BASE + i] = if pub_inputs.has_lt {
+        // cyclic constraint only if the corresponding diff bit is non-zero at least once in the program
+        for i in 0..NUM_DIFF_BITS {
+            degrees[LT_BITS_CON_BASE + i] = if pub_inputs.diff_bits_used & (1u64 << i) != 0 {
+                cyclic(2)
+            } else {
+                TransitionConstraintDegree::new(1)
+            };
+        }
+        for idx in [LT_RES_BOOL_CON, LT_DIFF_CON] {
+            degrees[idx] = if pub_inputs.has_lt {
                 cyclic(2)
             } else {
                 TransitionConstraintDegree::new(1)
@@ -83,10 +91,10 @@ impl Air for VmAir {
         }
 
         // next[res] should be (is_set*const_val + is_add*(s1+s2) + is_sub*(s1-s2) + is_mul*s1*s2)
-        let exp_res = curr_pub_in[P_IS_SET] * curr_pub_in[P_CONST]
-            + curr_pub_in[P_IS_ADD] * (next_src1 + next_src2)
-            + curr_pub_in[P_IS_SUB] * (next_src1 - next_src2)
-            + curr_pub_in[P_IS_MUL] * next_src1 * next_src2;
+        let exp_res = curr_pub_in[P_IS_SET] * curr_pub_in[P_CONST] + curr_pub_in[P_IS_ADD] * (next_src1 + next_src2)
+                    + curr_pub_in[P_IS_SUB] * (next_src1 - next_src2) + curr_pub_in[P_IS_MUL] * next_src1 * next_src2
+                    // res_col will not enforce lt constraints (handled separately)
+                    + curr_pub_in[P_IS_LT] * next_res;
         result[RES_COL] = next_res - exp_res;
 
         // next[src1/2] should be the dot product of their reg selectors and curr regs
@@ -98,8 +106,26 @@ impl Air for VmAir {
         result[SRC1_COL] = next_src1 - exp_s1;
         result[SRC2_COL] = next_src2 - exp_s2;
 
-        // src1 and src2 should be equal for is_assert_eq
         result[ASSERT_EQ_CON] = curr_pub_in[P_IS_ASSERT_EQ] * (next_src1 - next_src2);
+
+        let is_lt = curr_pub_in[P_IS_LT];
+        // 64 bit boolean constraints
+        for i in 0..NUM_DIFF_BITS {
+            let bit = next_row[LT_BITS_BASE + i];
+            result[LT_BITS_CON_BASE + i] = is_lt * bit * (bit - E::ONE);
+        }
+
+        // res should be 0 or 1
+        result[LT_RES_BOOL_CON] = is_lt * next_res * (next_res - E::ONE);
+
+        // diff reconstruction. bit decomposition should match algebraic diff
+        let exp_diff = next_res * (next_src2 - next_src1 - E::ONE)
+            + (E::ONE - next_res) * (next_src1 - next_src2);
+        let mut bit_sum = E::ZERO;
+        for i in 0..NUM_DIFF_BITS {
+            bit_sum += E::from(Felt::from(1u64 << i)) * next_row[LT_BITS_BASE + i];
+        }
+        result[LT_DIFF_CON] = is_lt * (exp_diff - bit_sum);
     }
 
     // all trace cols should be 0 for row 0

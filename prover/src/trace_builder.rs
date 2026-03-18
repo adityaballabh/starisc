@@ -1,5 +1,5 @@
 use crate::{
-    Felt, LT_BITS_BASE, NUM_LT_BITS, NUM_REGISTERS, RES_COL, SRC1_COL, SRC2_COL, TRACE_WIDTH,
+    Felt, LT_BITS_BASE, NUM_DIFF_BITS, NUM_REGISTERS, RES_COL, SRC1_COL, SRC2_COL, TRACE_WIDTH,
 };
 use std::array::from_fn;
 use vm::{Instruction, Trace};
@@ -11,7 +11,7 @@ pub fn get_trace_len(prog: &[Instruction]) -> usize {
     (prog.len() + 1).next_power_of_two().max(8)
 }
 
-fn get_ops(regs: &[u64; 16], s1: u8, s2: u8) -> (u64, u64) {
+pub fn get_ops(regs: &[u64; 16], s1: u8, s2: u8) -> (u64, u64) {
     (regs[s1 as usize], regs[s2 as usize])
 }
 
@@ -65,7 +65,7 @@ pub fn build_trace(prog: &[Instruction], vm_trace: &Trace) -> TraceTable<Felt> {
         // bit decomposition of diff for lt rows
         if matches!(instr, Instruction::Lt { .. }) {
             let diff = if res == 1 { s2 - s1 - 1 } else { s1 - s2 };
-            for bit in 0..NUM_LT_BITS {
+            for bit in 0..NUM_DIFF_BITS {
                 cols[LT_BITS_BASE + bit][out_row] = Felt::from((diff >> bit) & 1);
             }
         }

@@ -1,8 +1,8 @@
 use crate::air::VmAir;
 use crate::public_inputs::PublicInputs;
-use crate::trace_builder::{build_trace, get_trace_len};
+use crate::trace_builder::{build_trace, get_ops, get_trace_len};
 use crate::Felt;
-use vm::{Instruction, Trace};
+use vm::{execute, Instruction, Trace};
 use winterfell::crypto::hashers::Blake3_256;
 use winterfell::crypto::{DefaultRandomCoin, MerkleTree};
 use winterfell::math::fields::f128::BaseElement;
@@ -12,6 +12,8 @@ use winterfell::{
     Proof, ProofOptions, Prover, ProverError, StarkDomain, TraceInfo, TracePolyTable, TraceTable,
     VerifierError,
 };
+
+const EXEC_ERR: &str = "program failed to execute";
 
 // winterfell defaults (docs: 96-bit security with 32 queries). 64-bit VM -> 22 queries * log2(8) = 66-bit security
 const NUM_QUERIES: usize = 22;
@@ -28,7 +30,7 @@ pub struct VmProver {
 }
 
 impl VmProver {
-    pub fn new(prog: &[Instruction]) -> Self {
+    pub fn new(prog: &[Instruction], diff_bits_used: u64) -> Self {
         let trace_len = get_trace_len(prog);
         let options = ProofOptions::new(
             NUM_QUERIES,
@@ -38,7 +40,7 @@ impl VmProver {
             FRI_FOLDING_FACTOR,
             FRI_REMAINDER_MAX_DEGREE,
         );
-        let pub_inputs = PublicInputs::new(prog.to_vec(), trace_len);
+        let pub_inputs = PublicInputs::new(prog.to_vec(), trace_len, diff_bits_used);
         Self {
             options,
             pub_inputs,
@@ -106,15 +108,34 @@ impl Prover for VmProver {
     }
 }
 
+pub fn get_diff_bits_used(prog: &[Instruction], vm_trace: &Trace) -> u64 {
+    let mut bits: u64 = 0;
+    for (i, instr) in prog.iter().enumerate() {
+        if let Instruction::Lt { src1, src2, .. } = instr {
+            let prev = if i == 0 {
+                [0; 16]
+            } else {
+                vm_trace[i - 1].registers
+            };
+            let (s1, s2) = get_ops(&prev, *src1, *src2);
+            // set bit mask to 1 if corresponding diff bit is 1
+            bits |= if s1 < s2 { s2 - s1 - 1 } else { s1 - s2 };
+        }
+    }
+    bits
+}
+
 pub fn prove(prog: &[Instruction], vm_trace: &Trace) -> Result<Proof, ProverError> {
-    let prover = VmProver::new(prog);
+    let prover = VmProver::new(prog, get_diff_bits_used(prog, vm_trace));
     let trace = build_trace(prog, vm_trace);
     prover.prove(trace)
 }
 
 pub fn verify(prog: &[Instruction], proof: Proof) -> Result<(), VerifierError> {
     let trace_len = get_trace_len(prog);
-    let pub_inputs = PublicInputs::new(prog.to_vec(), trace_len);
+    let vm_trace = &execute(prog).expect(EXEC_ERR).0;
+    let pub_inputs =
+        PublicInputs::new(prog.to_vec(), trace_len, get_diff_bits_used(prog, vm_trace));
     let min_proof_bits = AcceptableOptions::MinConjecturedSecurity(MIN_VERIFY_SECURITY_BITS);
     winterfell::verify::<
         VmAir,
