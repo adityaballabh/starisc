@@ -31,9 +31,9 @@ impl Air for VmAir {
         // new(2) if the entire column has a degree 2 constraint
         let cyclic = |base| TransitionConstraintDegree::with_cycles(base, vec![trace_len]);
         let mut degrees = vec![TransitionConstraintDegree::new(1); NUM_CONSTRAINTS];
-        for j in 0..NUM_REGISTERS {
+        for (j, degree) in degrees.iter_mut().enumerate().take(NUM_REGISTERS) {
             if pub_inputs.dest_mask[j] {
-                degrees[j] = cyclic(1);
+                *degree = cyclic(1);
             }
         }
         degrees[SRC1_COL] = cyclic(1);
