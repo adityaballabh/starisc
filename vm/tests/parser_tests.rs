@@ -1,4 +1,4 @@
-mod common;
+use test_utils::get_op_path;
 use vm::Instruction;
 use vm::{parse_file, parse_str};
 
@@ -134,7 +134,7 @@ fn error_with_correct_line() {
 
 #[test]
 fn parse_sample_op_succeeds() {
-    parse_file(&common::get_op_path("all_ops")).unwrap();
+    parse_file(&get_op_path("all_ops")).unwrap();
 }
 
 macro_rules! has_instr {
@@ -145,7 +145,7 @@ macro_rules! has_instr {
 
 #[test]
 fn sample_op_covers_all_instr() {
-    let prog = parse_file(&common::get_op_path("all_ops")).unwrap();
+    let prog = parse_file(&get_op_path("all_ops")).unwrap();
     has_instr!(prog, Instruction::Set);
     has_instr!(prog, Instruction::Add);
     has_instr!(prog, Instruction::Sub);

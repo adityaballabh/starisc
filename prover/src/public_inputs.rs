@@ -24,7 +24,7 @@ pub struct PublicInputs {
     pub trace_len: usize,
     // precomputed flags to set constraint degrees
     pub dest_mask: [bool; 16], // true if reg used as dest
-    pub diff_bits_used: u64,   // bitmask. bit i is set if any lt/mod diff uses bit i
+    pub bits_used: u64,        // bitmask. set to 1 if the bit is used in any row (lt/mod/value)
     pub has_mul: bool,
     pub has_assert_eq: bool,
     pub has_lt: bool,
@@ -51,7 +51,7 @@ fn set_selectors(
 }
 
 impl PublicInputs {
-    pub fn new(prog: Vec<Instruction>, trace_len: usize, diff_bits_used: u64) -> Self {
+    pub fn new(prog: Vec<Instruction>, trace_len: usize, bits_used: u64) -> Self {
         let mut dest_mask = [false; 16];
         let mut has_mul = false;
         let mut has_assert_eq = false;
@@ -78,10 +78,10 @@ impl PublicInputs {
             prog,
             trace_len,
             dest_mask,
+            bits_used,
             has_mul,
             has_assert_eq,
             has_lt,
-            diff_bits_used,
         }
     }
 

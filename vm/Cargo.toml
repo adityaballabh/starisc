@@ -6,3 +6,6 @@ edition = "2021"
 [lib]
 name = "vm"
 path = "src/lib.rs"
+
+[dev-dependencies]
+test-utils = { path = "../test-utils" }

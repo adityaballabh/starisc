@@ -1,8 +1,7 @@
 use prover::prover::{prove, verify};
 use vm::{execute, parse_file};
 
-mod common;
-use common::get_op_path;
+use test_utils::{assert_proof_rejected, get_op_path};
 
 const ADD_INSTR: usize = 2;
 const LT_INSTR: usize = 7;
@@ -18,13 +17,10 @@ fn prove_and_verify() {
 
 fn assert_tamper_rejection(prog: &[vm::Instruction], trace: &vm::Trace) {
     let (trace_clone, prog_vec) = (trace.clone(), prog.to_vec());
-    // debug: prove panics on constraint check
-    let result = std::panic::catch_unwind(move || prove(&prog_vec, &trace_clone));
-    match result {
-        Err(_) | Ok(Err(_)) => {}
-        // release: verify rejects the proof
-        Ok(Ok(proof)) => assert!(verify(prog, proof).is_err()),
-    }
+    assert_proof_rejected(
+        move || prove(&prog_vec, &trace_clone),
+        |proof| verify(prog, proof),
+    );
 }
 
 #[test]

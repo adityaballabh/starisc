@@ -3,8 +3,9 @@ use crate::public_inputs::{
     P_RES_BASE, P_SRC1_BASE, P_SRC2_BASE,
 };
 use crate::{
-    Felt, ASSERT_EQ_CON, LT_BITS_BASE, LT_BITS_CON_BASE, LT_DIFF_CON, LT_RES_BOOL_CON,
-    NUM_CONSTRAINTS, NUM_DIFF_BITS, NUM_REGISTERS, RES_COL, SRC1_COL, SRC2_COL, TRACE_WIDTH,
+    Felt, ASSERT_EQ_CON, LT_RES_BOOL_CON, NUM_CONSTRAINTS, NUM_RANGE_BITS, NUM_REGISTERS,
+    RANGE_BITS_BASE, RANGE_BITS_CON_BASE, RANGE_RECON_CON, RES_COL, SRC1_COL, SRC2_COL,
+    TRACE_WIDTH,
 };
 use winterfell::math::FieldElement;
 use winterfell::{
@@ -26,35 +27,33 @@ impl Air for VmAir {
     fn new(trace_info: TraceInfo, pub_inputs: PublicInputs, options: ProofOptions) -> Self {
         let trace_len = pub_inputs.trace_len;
 
-        // constraints use periodic columns by default
-        // use new(1) only if the periodic column is all zeros (which makes the constraint polynomial 0)
+        // new(1) is the default constraint. use cyclic for periodic/instruction-specific constraints
+        // new(2) if the entire column has a degree 2 constraint
         let cyclic = |base| TransitionConstraintDegree::with_cycles(base, vec![trace_len]);
-        let mut degrees = vec![cyclic(1); NUM_CONSTRAINTS];
-        for (j, degree) in degrees.iter_mut().enumerate().take(NUM_REGISTERS) {
-            if !pub_inputs.dest_mask[j] {
-                *degree = TransitionConstraintDegree::new(1);
+        let mut degrees = vec![TransitionConstraintDegree::new(1); NUM_CONSTRAINTS];
+        for j in 0..NUM_REGISTERS {
+            if pub_inputs.dest_mask[j] {
+                degrees[j] = cyclic(1);
             }
         }
-        if pub_inputs.has_mul {
-            degrees[RES_COL] = cyclic(2);
+        degrees[SRC1_COL] = cyclic(1);
+        degrees[SRC2_COL] = cyclic(1);
+        degrees[RES_COL] = if pub_inputs.has_mul {
+            cyclic(2)
+        } else {
+            cyclic(1)
+        };
+        if pub_inputs.has_assert_eq {
+            degrees[ASSERT_EQ_CON] = cyclic(1);
         }
-        if !pub_inputs.has_assert_eq {
-            degrees[ASSERT_EQ_CON] = TransitionConstraintDegree::new(1);
+        for i in 0..NUM_RANGE_BITS {
+            if pub_inputs.bits_used & (1u64 << i) != 0 {
+                degrees[RANGE_BITS_CON_BASE + i] = TransitionConstraintDegree::new(2);
+            }
         }
-        // cyclic constraint only if the corresponding diff bit is non-zero at least once in the program
-        for i in 0..NUM_DIFF_BITS {
-            degrees[LT_BITS_CON_BASE + i] = if pub_inputs.diff_bits_used & (1u64 << i) != 0 {
-                cyclic(2)
-            } else {
-                TransitionConstraintDegree::new(1)
-            };
-        }
-        for idx in [LT_RES_BOOL_CON, LT_DIFF_CON] {
-            degrees[idx] = if pub_inputs.has_lt {
-                cyclic(2)
-            } else {
-                TransitionConstraintDegree::new(1)
-            };
+        if pub_inputs.has_lt {
+            degrees[LT_RES_BOOL_CON] = cyclic(2);
+            degrees[RANGE_RECON_CON] = cyclic(2);
         }
 
         let num_assertions = TRACE_WIDTH;
@@ -109,23 +108,23 @@ impl Air for VmAir {
         result[ASSERT_EQ_CON] = curr_pub_in[P_IS_ASSERT_EQ] * (next_src1 - next_src2);
 
         let is_lt = curr_pub_in[P_IS_LT];
-        // 64 bit boolean constraints
-        for i in 0..NUM_DIFF_BITS {
-            let bit = next_row[LT_BITS_BASE + i];
-            result[LT_BITS_CON_BASE + i] = is_lt * bit * (bit - E::ONE);
+        // 64 bit boolean constraints. enforced on each row for range checking
+        for i in 0..NUM_RANGE_BITS {
+            let bit = next_row[RANGE_BITS_BASE + i];
+            result[RANGE_BITS_CON_BASE + i] = bit * (bit - E::ONE);
         }
 
-        // res should be 0 or 1
+        // lt res should be 0 or 1
         result[LT_RES_BOOL_CON] = is_lt * next_res * (next_res - E::ONE);
 
-        // diff reconstruction. bit decomposition should match algebraic diff
+        // combined reconstruction. lt rows decompose diff, others decompose res
         let exp_diff = next_res * (next_src2 - next_src1 - E::ONE)
             + (E::ONE - next_res) * (next_src1 - next_src2);
         let mut bit_sum = E::ZERO;
-        for i in 0..NUM_DIFF_BITS {
-            bit_sum += E::from(Felt::from(1u64 << i)) * next_row[LT_BITS_BASE + i];
+        for i in 0..NUM_RANGE_BITS {
+            bit_sum += E::from(Felt::from(1u64 << i)) * next_row[RANGE_BITS_BASE + i];
         }
-        result[LT_DIFF_CON] = is_lt * (exp_diff - bit_sum);
+        result[RANGE_RECON_CON] = is_lt * (exp_diff - next_res) + (next_res - bit_sum);
     }
 
     // all trace cols should be 0 for row 0

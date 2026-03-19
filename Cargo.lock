@@ -144,6 +144,7 @@ dependencies = [
 name = "prover"
 version = "0.1.0"
 dependencies = [
+ "test-utils",
  "vm",
  "winterfell",
 ]
@@ -183,6 +184,10 @@ dependencies = [
  "quote",
  "unicode-ident",
 ]
+
+[[package]]
+name = "test-utils"
+version = "0.1.0"
 
 [[package]]
 name = "tracing"
@@ -233,6 +238,9 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 [[package]]
 name = "vm"
 version = "0.1.0"
+dependencies = [
+ "test-utils",
+]
 
 [[package]]
 name = "winter-air"

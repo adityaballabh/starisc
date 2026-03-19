@@ -1,8 +1,8 @@
 use crate::air::VmAir;
 use crate::public_inputs::PublicInputs;
-use crate::trace_builder::{build_trace, get_ops, get_trace_len};
+use crate::trace_builder::{build_trace, get_bits_used, get_trace_len};
 use crate::Felt;
-use vm::{execute, Instruction, Trace};
+use vm::{Instruction, Trace};
 use winterfell::crypto::hashers::Blake3_256;
 use winterfell::crypto::{DefaultRandomCoin, MerkleTree};
 use winterfell::math::fields::f128::BaseElement;
@@ -24,13 +24,13 @@ const FRI_REMAINDER_MAX_DEGREE: usize = 31;
 // verifier rejects proofs below this security level
 const MIN_VERIFY_SECURITY_BITS: u32 = 64;
 
-pub struct VmProver {
+pub(crate) struct VmProver {
     options: ProofOptions,
     pub_inputs: PublicInputs,
 }
 
 impl VmProver {
-    pub fn new(prog: &[Instruction], diff_bits_used: u64) -> Self {
+    pub fn new(prog: &[Instruction], bits_used: u64) -> Self {
         let trace_len = get_trace_len(prog);
         let options = ProofOptions::new(
             NUM_QUERIES,
@@ -40,7 +40,7 @@ impl VmProver {
             FRI_FOLDING_FACTOR,
             FRI_REMAINDER_MAX_DEGREE,
         );
-        let pub_inputs = PublicInputs::new(prog.to_vec(), trace_len, diff_bits_used);
+        let pub_inputs = PublicInputs::new(prog.to_vec(), trace_len, bits_used);
         Self {
             options,
             pub_inputs,
@@ -108,34 +108,16 @@ impl Prover for VmProver {
     }
 }
 
-pub fn get_diff_bits_used(prog: &[Instruction], vm_trace: &Trace) -> u64 {
-    let mut bits: u64 = 0;
-    for (i, instr) in prog.iter().enumerate() {
-        if let Instruction::Lt { src1, src2, .. } = instr {
-            let prev = if i == 0 {
-                [0; 16]
-            } else {
-                vm_trace[i - 1].registers
-            };
-            let (s1, s2) = get_ops(&prev, *src1, *src2);
-            // set bit mask to 1 if corresponding diff bit is 1
-            bits |= if s1 < s2 { s2 - s1 - 1 } else { s1 - s2 };
-        }
-    }
-    bits
-}
-
 pub fn prove(prog: &[Instruction], vm_trace: &Trace) -> Result<Proof, ProverError> {
-    let prover = VmProver::new(prog, get_diff_bits_used(prog, vm_trace));
+    let prover = VmProver::new(prog, get_bits_used(prog, vm_trace));
     let trace = build_trace(prog, vm_trace);
     prover.prove(trace)
 }
 
 pub fn verify(prog: &[Instruction], proof: Proof) -> Result<(), VerifierError> {
     let trace_len = get_trace_len(prog);
-    let vm_trace = &execute(prog).expect(EXEC_ERR).0;
-    let pub_inputs =
-        PublicInputs::new(prog.to_vec(), trace_len, get_diff_bits_used(prog, vm_trace));
+    let vm_trace = &vm::execute(prog).expect(EXEC_ERR).0;
+    let pub_inputs = PublicInputs::new(prog.to_vec(), trace_len, get_bits_used(prog, vm_trace));
     let min_proof_bits = AcceptableOptions::MinConjecturedSecurity(MIN_VERIFY_SECURITY_BITS);
     winterfell::verify::<
         VmAir,
@@ -143,4 +125,30 @@ pub fn verify(prog: &[Instruction], proof: Proof) -> Result<(), VerifierError> {
         DefaultRandomCoin<Blake3_256<BaseElement>>,
         MerkleTree<Blake3_256<BaseElement>>,
     >(proof, pub_inputs, &min_proof_bits)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::trace_builder::{build_trace, get_bits_used};
+    use crate::RES_COL;
+    use test_utils::{assert_proof_rejected, get_op_path};
+    use vm::parse_file;
+    use winterfell::math::FieldElement;
+
+    /// malicious prover trying to inject a value > u64::MAX into the trace
+    #[test]
+    fn rejects_overflow_injection() {
+        let prog = parse_file(&get_op_path("limited_ops")).unwrap();
+        let (vm_trace, _) = vm::execute(&prog).unwrap();
+        let mut trace = build_trace(&prog, &vm_trace);
+        trace.set(RES_COL, 3, Felt::from(u64::MAX) + Felt::ONE);
+
+        let prover = VmProver::new(&prog, get_bits_used(&prog, &vm_trace));
+        let (prog_clone, trace_clone) = (prog.clone(), trace);
+        assert_proof_rejected(
+            move || prover.prove(trace_clone),
+            |proof| verify(&prog_clone, proof),
+        );
+    }
 }
