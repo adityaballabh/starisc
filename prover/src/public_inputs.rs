@@ -9,8 +9,8 @@ pub const P_IS_ADD: usize = 1;
 pub const P_IS_SUB: usize = 2;
 pub const P_IS_MUL: usize = 3;
 pub const P_IS_ASSERT_EQ: usize = 4;
-pub const P_IS_MOD: usize = 5;
-pub const P_IS_LT: usize = 6;
+pub const P_IS_LT: usize = 5;
+pub const P_IS_MOD: usize = 6;
 pub const P_IS_NOP: usize = 7;
 // one-hot register selectors for res, src1, src2
 pub const P_RES_BASE: usize = 8;
@@ -24,8 +24,10 @@ pub struct PublicInputs {
     pub trace_len: usize,
     // precomputed flags to set constraint degrees
     pub dest_mask: [bool; 16], // true if reg used as dest
+    pub bits_used: u64,        // bitmask. set to 1 if the bit is used in any row (lt/mod/value)
     pub has_mul: bool,
     pub has_assert_eq: bool,
+    pub has_lt: bool,
 }
 
 fn set_selectors(
@@ -49,30 +51,37 @@ fn set_selectors(
 }
 
 impl PublicInputs {
-    pub fn new(prog: Vec<Instruction>, trace_len: usize) -> Self {
+    pub fn new(prog: Vec<Instruction>, trace_len: usize, bits_used: u64) -> Self {
         let mut dest_mask = [false; 16];
         let mut has_mul = false;
         let mut has_assert_eq = false;
+        let mut has_lt = false;
         for instr in &prog {
             match instr {
                 Instruction::Set { dest, .. }
                 | Instruction::Add { dest, .. }
                 | Instruction::Sub { dest, .. }
-                | Instruction::Mod { dest, .. }
-                | Instruction::Lt { dest, .. } => dest_mask[*dest as usize] = true,
+                | Instruction::Mod { dest, .. } => dest_mask[*dest as usize] = true,
                 Instruction::Mul { dest, .. } => {
                     dest_mask[*dest as usize] = true;
                     has_mul = true;
                 }
                 Instruction::AssertEq { .. } => has_assert_eq = true,
+                Instruction::Lt { dest, .. } => {
+                    dest_mask[*dest as usize] = true;
+                    has_lt = true;
+                }
             }
         }
+
         Self {
             prog,
             trace_len,
             dest_mask,
+            bits_used,
             has_mul,
             has_assert_eq,
+            has_lt,
         }
     }
 
@@ -97,11 +106,11 @@ impl PublicInputs {
                 Instruction::AssertEq { r1, r2 } => {
                     set_selectors(&mut cols, i, P_IS_ASSERT_EQ, None, *r1, *r2, None)
                 }
-                Instruction::Mod { dest, src1, src2 } => {
-                    set_selectors(&mut cols, i, P_IS_MOD, Some(*dest), *src1, *src2, None)
-                }
                 Instruction::Lt { dest, src1, src2 } => {
                     set_selectors(&mut cols, i, P_IS_LT, Some(*dest), *src1, *src2, None)
+                }
+                Instruction::Mod { dest, src1, src2 } => {
+                    set_selectors(&mut cols, i, P_IS_MOD, Some(*dest), *src1, *src2, None)
                 }
             }
         }
@@ -133,11 +142,11 @@ impl ToElements<Felt> for PublicInputs {
                 Instruction::AssertEq { r1, r2 } => {
                     (P_IS_ASSERT_EQ, None, Some(*r1), Some(*r2), None)
                 }
-                Instruction::Mod { dest, src1, src2 } => {
-                    (P_IS_MOD, Some(*dest), Some(*src1), Some(*src2), None)
-                }
                 Instruction::Lt { dest, src1, src2 } => {
                     (P_IS_LT, Some(*dest), Some(*src1), Some(*src2), None)
+                }
+                Instruction::Mod { dest, src1, src2 } => {
+                    (P_IS_MOD, Some(*dest), Some(*src1), Some(*src2), None)
                 }
             };
             elements.push(Felt::from(opcode as u64));

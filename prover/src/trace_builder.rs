@@ -1,11 +1,13 @@
-use crate::{Felt, NUM_REGISTERS, RES_COL, SRC1_COL, SRC2_COL, TRACE_WIDTH};
+use crate::{
+    Felt, NUM_RANGE_BITS, NUM_REGISTERS, RANGE_BITS_BASE, RES_COL, SRC1_COL, SRC2_COL, TRACE_WIDTH,
+};
 use std::array::from_fn;
 use vm::{Instruction, Trace};
 use winterfell::math::{FieldElement, StarkField};
 use winterfell::TraceTable;
 
-// +1 for initial row. winterfell restriction: min 8 and power of 2
 pub fn get_trace_len(prog: &[Instruction]) -> usize {
+    // +1 for initial row. winterfell restriction: min 8 and power of 2
     (prog.len() + 1).next_power_of_two().max(8)
 }
 
@@ -16,6 +18,35 @@ fn get_ops(regs: &[u64; 16], s1: u8, s2: u8) -> (u64, u64) {
 fn perform_binary_op(regs: &[u64; 16], s1: u8, s2: u8, op: fn(u64, u64) -> u64) -> (u64, u64, u64) {
     let (a, b) = get_ops(regs, s1, s2);
     (a, b, op(a, b))
+}
+
+pub fn get_bits_used(prog: &[Instruction], vm_trace: &Trace) -> u64 {
+    let mut bits: u64 = 0;
+    let mut regs: [u64; 16] = [0; 16];
+    for (instr, row) in prog.iter().zip(vm_trace.iter()) {
+        let decomp_val = if let Instruction::Lt { src1, src2, .. } = instr {
+            let (s1, s2) = get_ops(&regs, *src1, *src2);
+            if s1 < s2 {
+                s2 - s1 - 1
+            } else {
+                s1 - s2
+            }
+        } else {
+            // decomp res for range check (non-lt)
+            match instr {
+                Instruction::Set { dest, .. }
+                | Instruction::Add { dest, .. }
+                | Instruction::Sub { dest, .. }
+                | Instruction::Mul { dest, .. }
+                | Instruction::Mod { dest, .. } => row.registers[*dest as usize],
+                Instruction::AssertEq { .. } => 0,
+                Instruction::Lt { .. } => unreachable!(),
+            }
+        };
+        bits |= decomp_val;
+        regs = row.registers;
+    }
+    bits
 }
 
 pub fn build_trace(prog: &[Instruction], vm_trace: &Trace) -> TraceTable<Felt> {
@@ -44,12 +75,12 @@ pub fn build_trace(prog: &[Instruction], vm_trace: &Trace) -> TraceTable<Felt> {
             Instruction::Mul { src1, src2, .. } => {
                 perform_binary_op(&prev_regs, *src1, *src2, u64::wrapping_mul)
             }
-            Instruction::Mod { src1, src2, .. } => {
-                perform_binary_op(&prev_regs, *src1, *src2, u64::wrapping_rem)
-            }
             Instruction::AssertEq { r1, r2 } => {
                 let (a, b) = get_ops(&prev_regs, *r1, *r2);
                 (a, b, 0)
+            }
+            Instruction::Mod { src1, src2, .. } => {
+                perform_binary_op(&prev_regs, *src1, *src2, u64::wrapping_rem)
             }
             Instruction::Lt { src1, src2, .. } => {
                 let (a, b) = get_ops(&prev_regs, *src1, *src2);
@@ -59,6 +90,20 @@ pub fn build_trace(prog: &[Instruction], vm_trace: &Trace) -> TraceTable<Felt> {
         cols[SRC1_COL][out_row] = Felt::from(s1);
         cols[SRC2_COL][out_row] = Felt::from(s2);
         cols[RES_COL][out_row] = Felt::from(res);
+
+        // bit decomposition. lt rows decompose diff, all others decompose res (range check)
+        let decomp_val = if matches!(instr, Instruction::Lt { .. }) {
+            if res == 1 {
+                s2 - s1 - 1
+            } else {
+                s1 - s2
+            }
+        } else {
+            res
+        };
+        for bit in 0..NUM_RANGE_BITS {
+            cols[RANGE_BITS_BASE + bit][out_row] = Felt::from((decomp_val >> bit) & 1);
+        }
     }
 
     if n > 0 {

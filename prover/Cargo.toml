@@ -8,3 +8,4 @@ vm = { path = "../vm" }
 winterfell = "0.11"
 
 [dev-dependencies]
+test-utils = { path = "../test-utils" }

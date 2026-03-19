@@ -1,29 +1,40 @@
 use prover::prover::{prove, verify};
 use vm::{execute, parse_file};
 
-mod common;
-use common::get_op_path;
+use test_utils::{assert_proof_rejected, get_op_path};
+
+const ADD_INSTR: usize = 2;
+const LT_INSTR: usize = 7;
+const ADD_RES_REG: usize = 7;
+const LT_RES_REG: usize = 8;
 
 #[test]
 fn prove_and_verify() {
     let prog = parse_file(&get_op_path("limited_ops")).unwrap();
     let (trace, _) = execute(&prog).unwrap();
-    let proof = prove(&prog, &trace).unwrap();
-    assert!(verify(&prog, proof).is_ok());
+    assert!(verify(&prog, prove(&prog, &trace).unwrap()).is_ok());
+}
+
+fn assert_tamper_rejection(prog: &[vm::Instruction], trace: &vm::Trace) {
+    let (trace_clone, prog_vec) = (trace.clone(), prog.to_vec());
+    assert_proof_rejected(
+        move || prove(&prog_vec, &trace_clone),
+        |proof| verify(prog, proof),
+    );
 }
 
 #[test]
-fn tampered_trace_rejected() {
+fn rejects_tampered_add() {
     let prog = parse_file(&get_op_path("limited_ops")).unwrap();
     let (mut trace, _) = execute(&prog).unwrap();
-    // corrupt r3 at instr 2
-    trace[2].registers[3] = 500;
-    // debug: prove will panic on constraint check
-    // release: prove will succeed but verify will reject the proof
-    let result = std::panic::catch_unwind(|| prove(&prog, &trace));
-    match result {
-        Err(_) => {}
-        Ok(Err(_)) => {}
-        Ok(Ok(proof)) => assert!(verify(&prog, proof).is_err()),
-    }
+    trace[ADD_INSTR].registers[ADD_RES_REG] += 10;
+    assert_tamper_rejection(&prog, &trace);
+}
+
+#[test]
+fn rejects_tampered_lt() {
+    let prog = parse_file(&get_op_path("limited_ops")).unwrap();
+    let (mut trace, _) = execute(&prog).unwrap();
+    trace[LT_INSTR].registers[LT_RES_REG] ^= 1;
+    assert_tamper_rejection(&prog, &trace);
 }
