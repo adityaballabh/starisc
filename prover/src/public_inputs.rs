@@ -62,8 +62,10 @@ impl PublicInputs {
             match instr {
                 Instruction::Set { dest, .. }
                 | Instruction::Add { dest, .. }
-                | Instruction::Sub { dest, .. }
-                | Instruction::Mod { dest, .. } => {
+                | Instruction::Sub { dest, .. } => {
+                    dest_mask[*dest as usize] = true;
+                }
+                Instruction::Mod { dest, .. } => {
                     dest_mask[*dest as usize] = true;
                     has_mod = true;
                 }

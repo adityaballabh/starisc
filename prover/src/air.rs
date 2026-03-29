@@ -113,10 +113,14 @@ impl Air for VmAir {
         result[SRC2_COL] = next_src2 - exp_s2;
         let is_lt = curr_pub_in[P_IS_LT];
         let is_mod = curr_pub_in[P_IS_MOD];
-        result[QUOT_COL] = (E::ONE - is_mod) * next_quot;
-
         result[ASSERT_EQ_CON] = curr_pub_in[P_IS_ASSERT_EQ] * (next_src1 - next_src2);
-        result[MOD_REL_CON] = is_mod * (next_src1 - (next_src2 * next_quot + next_res));
+        if self.public_inputs.has_mod {
+            result[QUOT_COL] = (E::ONE - is_mod) * next_quot;
+            result[MOD_REL_CON] = is_mod * (next_src1 - (next_src2 * next_quot + next_res));
+        } else {
+            result[QUOT_COL] = E::ZERO;
+            result[MOD_REL_CON] = E::ZERO;
+        }
 
         // 64 bit boolean constraints. enforced on each row for range checking
         for i in 0..NUM_RANGE_BITS {
