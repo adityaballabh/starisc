@@ -1,5 +1,6 @@
 use crate::{
-    Felt, NUM_RANGE_BITS, NUM_REGISTERS, RANGE_BITS_BASE, RES_COL, SRC1_COL, SRC2_COL, TRACE_WIDTH,
+    Felt, NUM_RANGE_BITS, NUM_REGISTERS, QUOT_COL, RANGE_BITS_BASE, RES_COL, SRC1_COL, SRC2_COL,
+    TRACE_WIDTH,
 };
 use std::array::from_fn;
 use vm::{Instruction, Trace};
@@ -31,6 +32,11 @@ pub fn get_bits_used(prog: &[Instruction], vm_trace: &Trace) -> u64 {
             } else {
                 s1 - s2
             }
+        } else if let Instruction::Mod { src1, src2, .. } = instr {
+            let (_, s2) = get_ops(&regs, *src1, *src2);
+            let res = row.registers[instr_dest(instr) as usize];
+            debug_assert!(s2 != 0, "MOD by zero should not reach trace building");
+            s2 - res - 1
         } else {
             // decomp res for range check (non-lt)
             match instr {
@@ -49,6 +55,18 @@ pub fn get_bits_used(prog: &[Instruction], vm_trace: &Trace) -> u64 {
     bits
 }
 
+fn instr_dest(instr: &Instruction) -> u8 {
+    match instr {
+        Instruction::Set { dest, .. }
+        | Instruction::Add { dest, .. }
+        | Instruction::Sub { dest, .. }
+        | Instruction::Mul { dest, .. }
+        | Instruction::Mod { dest, .. }
+        | Instruction::Lt { dest, .. } => *dest,
+        Instruction::AssertEq { .. } => unreachable!("ASSERT_EQ does not write a destination"),
+    }
+}
+
 pub fn build_trace(prog: &[Instruction], vm_trace: &Trace) -> TraceTable<Felt> {
     assert_eq!(prog.len(), vm_trace.len());
     let n = prog.len();
@@ -64,40 +82,48 @@ pub fn build_trace(prog: &[Instruction], vm_trace: &Trace) -> TraceTable<Felt> {
 
         let prev_regs: [u64; 16] = from_fn(|r| cols[r][out_row - 1].as_int() as u64);
 
-        let (s1, s2, res) = match instr {
-            Instruction::Set { val, .. } => (0, 0, *val),
+        let (s1, s2, res, quot) = match instr {
+            Instruction::Set { val, .. } => (0, 0, *val, 0),
             Instruction::Add { src1, src2, .. } => {
-                perform_binary_op(&prev_regs, *src1, *src2, u64::wrapping_add)
+                let (s1, s2, res) = perform_binary_op(&prev_regs, *src1, *src2, u64::wrapping_add);
+                (s1, s2, res, 0)
             }
             Instruction::Sub { src1, src2, .. } => {
-                perform_binary_op(&prev_regs, *src1, *src2, u64::wrapping_sub)
+                let (s1, s2, res) = perform_binary_op(&prev_regs, *src1, *src2, u64::wrapping_sub);
+                (s1, s2, res, 0)
             }
             Instruction::Mul { src1, src2, .. } => {
-                perform_binary_op(&prev_regs, *src1, *src2, u64::wrapping_mul)
+                let (s1, s2, res) = perform_binary_op(&prev_regs, *src1, *src2, u64::wrapping_mul);
+                (s1, s2, res, 0)
             }
             Instruction::AssertEq { r1, r2 } => {
                 let (a, b) = get_ops(&prev_regs, *r1, *r2);
-                (a, b, 0)
+                (a, b, 0, 0)
             }
             Instruction::Mod { src1, src2, .. } => {
-                perform_binary_op(&prev_regs, *src1, *src2, u64::wrapping_rem)
+                let (a, b) = get_ops(&prev_regs, *src1, *src2);
+                debug_assert!(b != 0, "MOD by zero should not reach trace building");
+                (a, b, a % b, a / b)
             }
             Instruction::Lt { src1, src2, .. } => {
                 let (a, b) = get_ops(&prev_regs, *src1, *src2);
-                (a, b, (a < b) as u64)
+                (a, b, (a < b) as u64, 0)
             }
         };
         cols[SRC1_COL][out_row] = Felt::from(s1);
         cols[SRC2_COL][out_row] = Felt::from(s2);
         cols[RES_COL][out_row] = Felt::from(res);
+        cols[QUOT_COL][out_row] = Felt::from(quot);
 
-        // bit decomposition. lt rows decompose diff, all others decompose res (range check)
+        // bit decomposition. lt/mod rows decompose a comparison diff, all others decompose res.
         let decomp_val = if matches!(instr, Instruction::Lt { .. }) {
             if res == 1 {
                 s2 - s1 - 1
             } else {
                 s1 - s2
             }
+        } else if matches!(instr, Instruction::Mod { .. }) {
+            s2 - res - 1
         } else {
             res
         };
