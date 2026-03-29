@@ -24,10 +24,11 @@ pub struct PublicInputs {
     pub trace_len: usize,
     // precomputed flags to set constraint degrees
     pub dest_mask: [bool; 16], // true if reg used as dest
-    pub bits_used: u64,        // bitmask. set to 1 if the bit is used in any row (lt/mod/value)
+    pub bits_used: u64, // bitmask. set to 1 if the bit is used in any row (lt/mod diff or value)
     pub has_mul: bool,
     pub has_assert_eq: bool,
     pub has_lt: bool,
+    pub has_mod: bool,
 }
 
 fn set_selectors(
@@ -56,12 +57,18 @@ impl PublicInputs {
         let mut has_mul = false;
         let mut has_assert_eq = false;
         let mut has_lt = false;
+        let mut has_mod = false;
         for instr in &prog {
             match instr {
                 Instruction::Set { dest, .. }
                 | Instruction::Add { dest, .. }
-                | Instruction::Sub { dest, .. }
-                | Instruction::Mod { dest, .. } => dest_mask[*dest as usize] = true,
+                | Instruction::Sub { dest, .. } => {
+                    dest_mask[*dest as usize] = true;
+                }
+                Instruction::Mod { dest, .. } => {
+                    dest_mask[*dest as usize] = true;
+                    has_mod = true;
+                }
                 Instruction::Mul { dest, .. } => {
                     dest_mask[*dest as usize] = true;
                     has_mul = true;
@@ -82,6 +89,7 @@ impl PublicInputs {
             has_mul,
             has_assert_eq,
             has_lt,
+            has_mod,
         }
     }
 
