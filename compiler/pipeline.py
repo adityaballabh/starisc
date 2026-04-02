@@ -1,8 +1,8 @@
 import ast
 from .op import Op
-from .walker import Walker
+from .flattener import Flattener
 
 
 def compiler(source: str) -> list[Op]:
     tree = ast.parse(source)
-    return Walker().run(tree)
+    return Flattener().run(tree)
