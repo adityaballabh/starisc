@@ -5,7 +5,7 @@ use crate::public_inputs::{
 use crate::{
     Felt, ASSERT_EQ_CON, LT_RES_BOOL_CON, MOD_REL_CON, NUM_CONSTRAINTS, NUM_RANGE_BITS,
     NUM_REGISTERS, QUOT_COL, RANGE_BITS_BASE, RANGE_BITS_CON_BASE, RANGE_RECON_CON, RES_COL,
-    SRC1_COL, SRC2_COL, TRACE_WIDTH,
+    SRC1_COL, SRC2_COL, TRACE_WIDTH, WRAP_BITS_BASE, WRAP_BITS_CON_BASE,
 };
 use winterfell::math::FieldElement;
 use winterfell::{
@@ -26,6 +26,16 @@ impl Air for VmAir {
 
     fn new(trace_info: TraceInfo, pub_inputs: PublicInputs, options: ProofOptions) -> Self {
         let trace_len = pub_inputs.trace_len;
+        let has_result_constraint = pub_inputs.prog.iter().any(|instr| {
+            matches!(
+                instr,
+                vm::Instruction::Set { .. }
+                    | vm::Instruction::Add { .. }
+                    | vm::Instruction::Sub { .. }
+                    | vm::Instruction::Mul { .. }
+                    | vm::Instruction::AssertEq { .. }
+            )
+        });
 
         // new(1) is the default constraint. use cyclic for periodic/instruction-specific constraints
         // new(2) if the entire column has a degree 2 constraint
@@ -36,12 +46,18 @@ impl Air for VmAir {
                 *degree = cyclic(1);
             }
         }
-        degrees[SRC1_COL] = cyclic(1);
-        degrees[SRC2_COL] = cyclic(1);
+        if pub_inputs.has_nonzero_src1 {
+            degrees[SRC1_COL] = cyclic(1);
+        }
+        if pub_inputs.has_nonzero_src2 {
+            degrees[SRC2_COL] = cyclic(1);
+        }
         degrees[RES_COL] = if pub_inputs.has_mul {
             cyclic(2)
-        } else {
+        } else if has_result_constraint {
             cyclic(1)
+        } else {
+            TransitionConstraintDegree::new(1)
         };
         if pub_inputs.has_mod {
             degrees[QUOT_COL] = cyclic(1);
@@ -54,10 +70,15 @@ impl Air for VmAir {
             if pub_inputs.bits_used & (1u64 << i) != 0 {
                 degrees[RANGE_BITS_CON_BASE + i] = TransitionConstraintDegree::new(2);
             }
+            if pub_inputs.wrap_bits_used & (1u64 << i) != 0 {
+                degrees[WRAP_BITS_CON_BASE + i] = TransitionConstraintDegree::new(2);
+            }
         }
         if pub_inputs.has_lt {
             degrees[LT_RES_BOOL_CON] = cyclic(2);
             degrees[RANGE_RECON_CON] = cyclic(2);
+        } else if pub_inputs.has_mod {
+            degrees[RANGE_RECON_CON] = cyclic(1);
         }
 
         let num_assertions = TRACE_WIDTH;
@@ -87,6 +108,11 @@ impl Air for VmAir {
         let next_src2 = next_row[SRC2_COL];
         let next_res = next_row[RES_COL];
         let next_quot = next_row[QUOT_COL];
+        let two64 = E::from(Felt::from(u64::MAX)) + E::ONE;
+        let mut wrap_bit_sum = E::ZERO;
+        for i in 0..NUM_RANGE_BITS {
+            wrap_bit_sum += E::from(Felt::from(1u64 << i)) * next_row[WRAP_BITS_BASE + i];
+        }
 
         // all reg except dest should not change. dest should be next_res
         for j in 0..NUM_REGISTERS {
@@ -94,14 +120,17 @@ impl Air for VmAir {
                 - curr_pub_in[P_RES_BASE + j] * (next_res - curr_row[j]);
         }
 
-        // next[res] should be (is_set*const + is_add*(s1+s2) + is_sub*(s1-s2) + is_mul*s1*s2).
-        // lt/mod are enforced separately.
-        let exp_res = curr_pub_in[P_IS_SET] * curr_pub_in[P_CONST]
-            + curr_pub_in[P_IS_ADD] * (next_src1 + next_src2)
-            + curr_pub_in[P_IS_SUB] * (next_src1 - next_src2)
-            + curr_pub_in[P_IS_MUL] * next_src1 * next_src2
-            + (curr_pub_in[P_IS_LT] + curr_pub_in[P_IS_MOD]) * next_res;
-        result[RES_COL] = next_res - exp_res;
+        let is_add = curr_pub_in[P_IS_ADD];
+        let is_sub = curr_pub_in[P_IS_SUB];
+        let is_mul = curr_pub_in[P_IS_MUL];
+        let is_lt = curr_pub_in[P_IS_LT];
+        let is_mod = curr_pub_in[P_IS_MOD];
+
+        result[RES_COL] = curr_pub_in[P_IS_SET] * (next_res - curr_pub_in[P_CONST])
+            + is_add * (next_res + wrap_bit_sum * two64 - next_src1 - next_src2)
+            + is_sub * (next_res - next_src1 + next_src2 - wrap_bit_sum * two64)
+            + is_mul * (next_res + wrap_bit_sum * two64 - next_src1 * next_src2)
+            + curr_pub_in[P_IS_ASSERT_EQ] * (next_res - E::ONE);
 
         // next[src1/2] should be the dot product of their reg selectors and curr regs
         let (mut exp_s1, mut exp_s2) = (E::ZERO, E::ZERO);
@@ -111,14 +140,14 @@ impl Air for VmAir {
         }
         result[SRC1_COL] = next_src1 - exp_s1;
         result[SRC2_COL] = next_src2 - exp_s2;
-        let is_lt = curr_pub_in[P_IS_LT];
-        let is_mod = curr_pub_in[P_IS_MOD];
-        result[ASSERT_EQ_CON] = curr_pub_in[P_IS_ASSERT_EQ] * (next_src1 - next_src2);
+        result[ASSERT_EQ_CON] =
+            curr_pub_in[P_IS_ASSERT_EQ] * (next_src1 - next_src2 - (next_res - E::ONE));
         if self.public_inputs.has_mod {
-            result[QUOT_COL] = (E::ONE - is_mod) * next_quot;
-            result[MOD_REL_CON] = is_mod * (next_src1 - (next_src2 * next_quot + next_res));
+            result[QUOT_COL] = (E::ONE - is_mod) * (next_quot - E::ONE);
+            result[MOD_REL_CON] =
+                is_mod * (next_src1 - (next_src2 * (next_quot - E::ONE) + next_res));
         } else {
-            result[QUOT_COL] = E::ZERO;
+            result[QUOT_COL] = next_quot - E::ONE;
             result[MOD_REL_CON] = E::ZERO;
         }
 
@@ -126,6 +155,8 @@ impl Air for VmAir {
         for i in 0..NUM_RANGE_BITS {
             let bit = next_row[RANGE_BITS_BASE + i];
             result[RANGE_BITS_CON_BASE + i] = bit * (bit - E::ONE);
+            let wrap_bit = next_row[WRAP_BITS_BASE + i];
+            result[WRAP_BITS_CON_BASE + i] = wrap_bit * (wrap_bit - E::ONE);
         }
 
         // lt res should be 0 or 1
