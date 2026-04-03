@@ -36,8 +36,10 @@ impl Air for VmAir {
                 *degree = cyclic(1);
             }
         }
-        degrees[SRC1_COL] = cyclic(1);
-        degrees[SRC2_COL] = cyclic(1);
+        if pub_inputs.has_src_reads {
+            degrees[SRC1_COL] = cyclic(1);
+            degrees[SRC2_COL] = cyclic(1);
+        }
         degrees[RES_COL] = if pub_inputs.has_mul {
             cyclic(2)
         } else {
@@ -58,6 +60,8 @@ impl Air for VmAir {
         if pub_inputs.has_lt {
             degrees[LT_RES_BOOL_CON] = cyclic(2);
             degrees[RANGE_RECON_CON] = cyclic(2);
+        } else if pub_inputs.has_mod {
+            degrees[RANGE_RECON_CON] = cyclic(1);
         }
 
         let num_assertions = TRACE_WIDTH;
@@ -100,6 +104,7 @@ impl Air for VmAir {
             + curr_pub_in[P_IS_ADD] * (next_src1 + next_src2)
             + curr_pub_in[P_IS_SUB] * (next_src1 - next_src2)
             + curr_pub_in[P_IS_MUL] * next_src1 * next_src2
+            + curr_pub_in[P_IS_ASSERT_EQ]
             + (curr_pub_in[P_IS_LT] + curr_pub_in[P_IS_MOD]) * next_res;
         result[RES_COL] = next_res - exp_res;
 
@@ -113,10 +118,12 @@ impl Air for VmAir {
         result[SRC2_COL] = next_src2 - exp_s2;
         let is_lt = curr_pub_in[P_IS_LT];
         let is_mod = curr_pub_in[P_IS_MOD];
-        result[ASSERT_EQ_CON] = curr_pub_in[P_IS_ASSERT_EQ] * (next_src1 - next_src2);
+        result[ASSERT_EQ_CON] =
+            curr_pub_in[P_IS_ASSERT_EQ] * (next_src1 - next_src2 - (next_res - E::ONE));
         if self.public_inputs.has_mod {
             result[QUOT_COL] = (E::ONE - is_mod) * next_quot;
-            result[MOD_REL_CON] = is_mod * (next_src1 - (next_src2 * next_quot + next_res));
+            result[MOD_REL_CON] =
+                is_mod * (next_src1 - (next_src2 * (next_quot - E::ONE) + next_res));
         } else {
             result[QUOT_COL] = E::ZERO;
             result[MOD_REL_CON] = E::ZERO;

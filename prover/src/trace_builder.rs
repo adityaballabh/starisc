@@ -45,7 +45,7 @@ pub fn get_bits_used(prog: &[Instruction], vm_trace: &Trace) -> u64 {
                 | Instruction::Sub { dest, .. }
                 | Instruction::Mul { dest, .. }
                 | Instruction::Mod { dest, .. } => row.registers[*dest as usize],
-                Instruction::AssertEq { .. } => 0,
+                Instruction::AssertEq { .. } => 1,
                 Instruction::Lt { .. } => unreachable!(),
             }
         };
@@ -98,12 +98,14 @@ pub fn build_trace(prog: &[Instruction], vm_trace: &Trace) -> TraceTable<Felt> {
             }
             Instruction::AssertEq { r1, r2 } => {
                 let (a, b) = get_ops(&prev_regs, *r1, *r2);
-                (a, b, 0, 0)
+                // Store 1 on ASSERT_EQ rows so the equality constraint keeps a stable degree.
+                (a, b, 1, 0)
             }
             Instruction::Mod { src1, src2, .. } => {
                 let (a, b) = get_ops(&prev_regs, *src1, *src2);
                 debug_assert!(b != 0, "MOD by zero should not reach trace building");
-                (a, b, a % b, a / b)
+                // Store quotient + 1 so the MOD quotient witness is never identically zero.
+                (a, b, a % b, (a / b) + 1)
             }
             Instruction::Lt { src1, src2, .. } => {
                 let (a, b) = get_ops(&prev_regs, *src1, *src2);

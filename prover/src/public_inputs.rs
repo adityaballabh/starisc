@@ -25,6 +25,7 @@ pub struct PublicInputs {
     // precomputed flags to set constraint degrees
     pub dest_mask: [bool; 16], // true if reg used as dest
     pub bits_used: u64, // bitmask. set to 1 if the bit is used in any row (lt/mod diff or value)
+    pub has_src_reads: bool,
     pub has_mul: bool,
     pub has_assert_eq: bool,
     pub has_lt: bool,
@@ -54,6 +55,7 @@ fn set_selectors(
 impl PublicInputs {
     pub fn new(prog: Vec<Instruction>, trace_len: usize, bits_used: u64) -> Self {
         let mut dest_mask = [false; 16];
+        let mut has_src_reads = false;
         let mut has_mul = false;
         let mut has_assert_eq = false;
         let mut has_lt = false;
@@ -64,18 +66,27 @@ impl PublicInputs {
                 | Instruction::Add { dest, .. }
                 | Instruction::Sub { dest, .. } => {
                     dest_mask[*dest as usize] = true;
+                    if !matches!(instr, Instruction::Set { .. }) {
+                        has_src_reads = true;
+                    }
                 }
                 Instruction::Mod { dest, .. } => {
                     dest_mask[*dest as usize] = true;
+                    has_src_reads = true;
                     has_mod = true;
                 }
                 Instruction::Mul { dest, .. } => {
                     dest_mask[*dest as usize] = true;
+                    has_src_reads = true;
                     has_mul = true;
                 }
-                Instruction::AssertEq { .. } => has_assert_eq = true,
+                Instruction::AssertEq { .. } => {
+                    has_src_reads = true;
+                    has_assert_eq = true;
+                }
                 Instruction::Lt { dest, .. } => {
                     dest_mask[*dest as usize] = true;
+                    has_src_reads = true;
                     has_lt = true;
                 }
             }
@@ -86,6 +97,7 @@ impl PublicInputs {
             trace_len,
             dest_mask,
             bits_used,
+            has_src_reads,
             has_mul,
             has_assert_eq,
             has_lt,
