@@ -1,6 +1,8 @@
 use crate::air::VmAir;
 use crate::public_inputs::PublicInputs;
-use crate::trace_builder::{build_trace, get_bits_used, get_trace_len};
+use crate::trace_builder::{
+    build_trace, get_bits_used, get_nonzero_sources, get_trace_len, get_wrap_bits_used,
+};
 use crate::Felt;
 use vm::{Instruction, Trace};
 use winterfell::crypto::hashers::Blake3_256;
@@ -30,7 +32,13 @@ pub(crate) struct VmProver {
 }
 
 impl VmProver {
-    pub fn new(prog: &[Instruction], bits_used: u64) -> Self {
+    pub fn new(
+        prog: &[Instruction],
+        bits_used: u64,
+        wrap_bits_used: u64,
+        has_nonzero_src1: bool,
+        has_nonzero_src2: bool,
+    ) -> Self {
         let trace_len = get_trace_len(prog);
         let options = ProofOptions::new(
             NUM_QUERIES,
@@ -40,7 +48,14 @@ impl VmProver {
             FRI_FOLDING_FACTOR,
             FRI_REMAINDER_MAX_DEGREE,
         );
-        let pub_inputs = PublicInputs::new(prog.to_vec(), trace_len, bits_used);
+        let pub_inputs = PublicInputs::new(
+            prog.to_vec(),
+            trace_len,
+            bits_used,
+            wrap_bits_used,
+            has_nonzero_src1,
+            has_nonzero_src2,
+        );
         Self {
             options,
             pub_inputs,
@@ -109,7 +124,14 @@ impl Prover for VmProver {
 }
 
 pub fn prove(prog: &[Instruction], vm_trace: &Trace) -> Result<Proof, ProverError> {
-    let prover = VmProver::new(prog, get_bits_used(prog, vm_trace));
+    let (has_nonzero_src1, has_nonzero_src2) = get_nonzero_sources(prog, vm_trace);
+    let prover = VmProver::new(
+        prog,
+        get_bits_used(prog, vm_trace),
+        get_wrap_bits_used(prog, vm_trace),
+        has_nonzero_src1,
+        has_nonzero_src2,
+    );
     let trace = build_trace(prog, vm_trace);
     prover.prove(trace)
 }
@@ -117,7 +139,15 @@ pub fn prove(prog: &[Instruction], vm_trace: &Trace) -> Result<Proof, ProverErro
 pub fn verify(prog: &[Instruction], proof: Proof) -> Result<(), VerifierError> {
     let trace_len = get_trace_len(prog);
     let vm_trace = &vm::execute(prog).expect(EXEC_ERR).0;
-    let pub_inputs = PublicInputs::new(prog.to_vec(), trace_len, get_bits_used(prog, vm_trace));
+    let (has_nonzero_src1, has_nonzero_src2) = get_nonzero_sources(prog, vm_trace);
+    let pub_inputs = PublicInputs::new(
+        prog.to_vec(),
+        trace_len,
+        get_bits_used(prog, vm_trace),
+        get_wrap_bits_used(prog, vm_trace),
+        has_nonzero_src1,
+        has_nonzero_src2,
+    );
     let min_proof_bits = AcceptableOptions::MinConjecturedSecurity(MIN_VERIFY_SECURITY_BITS);
     winterfell::verify::<
         VmAir,
@@ -143,8 +173,15 @@ mod tests {
         let (vm_trace, _) = vm::execute(&prog).unwrap();
         let mut trace = build_trace(&prog, &vm_trace);
         trace.set(RES_COL, 3, Felt::from(u64::MAX) + Felt::ONE);
+        let (has_nonzero_src1, has_nonzero_src2) = get_nonzero_sources(&prog, &vm_trace);
 
-        let prover = VmProver::new(&prog, get_bits_used(&prog, &vm_trace));
+        let prover = VmProver::new(
+            &prog,
+            get_bits_used(&prog, &vm_trace),
+            get_wrap_bits_used(&prog, &vm_trace),
+            has_nonzero_src1,
+            has_nonzero_src2,
+        );
         let (prog_clone, trace_clone) = (prog.clone(), trace);
         assert_proof_rejected(
             move || prover.prove(trace_clone),

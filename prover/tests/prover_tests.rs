@@ -158,19 +158,21 @@ fn prove_verify_empty_program() {
     assert_prove_verify(&prog);
 }
 
-#[ignore = "wrapping arithmetic proofs are not implemented in the current AIR"]
 #[test]
 fn prove_verify_add_overflow() {
     assert_program_proves(&format!("SET r1 {}\nSET r2 1\nADD r3 r1 r2", u64::MAX));
 }
 
-#[ignore = "wrapping arithmetic proofs are not implemented in the current AIR"]
+#[test]
+fn prove_verify_add_overflow_multiple() {
+    assert_program_proves(&format!("SET r1 {}\nSET r2 1\nADD r3 r1 r2\nADD r3 r3 r1\nADD r3 r3 r1\nSET r4 18446744073709551614\nASSERT_EQ r3 r4", u64::MAX));
+}
+
 #[test]
 fn prove_verify_sub_underflow() {
     assert_program_proves("SET r1 0\nSET r2 1\nSUB r3 r1 r2");
 }
 
-#[ignore = "wrapping arithmetic proofs are not implemented in the current AIR"]
 #[test]
 fn prove_verify_mul_overflow() {
     assert_program_proves(&format!(
