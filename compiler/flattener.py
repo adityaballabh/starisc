@@ -25,6 +25,14 @@ class Flattener(ast.NodeVisitor):
         self._ops.append(Op(opcode, t, lhs, rhs))
         return t
 
+    def _negate_lt(self, left, right):
+        lt = self._emit_binary("LT", left, right)
+        one = self._incr_temp()
+        self._ops.append(Op("SET", one, "1"))
+        t = self._incr_temp()
+        self._ops.append(Op("SUB", t, one, lt))
+        return t
+
     def _flatten_expr(self, node):
         match node:
             case ast.Name(id=name):
@@ -35,6 +43,31 @@ class Flattener(ast.NodeVisitor):
                 self._ops.append(Op("SET", t, str(v)))
                 return t
 
+            case ast.BinOp(left=base, op=ast.Pow(), right=ast.Constant(value=exp)):
+                # exponent must be a compile-time constant (otherwise loops are needed)
+                if not isinstance(exp, int) or exp < 0:
+                    raise TypeError(
+                        f"exponent must be a non-negative integer constant, got {exp}"
+                    )
+                b = self._flatten_expr(base)
+                if exp == 0:
+                    t = self._incr_temp()
+                    self._ops.append(Op("SET", t, "1"))
+                    return t
+                # binary exponentiation
+                bits = bin(exp)[2:]
+                res = b
+                for bit in bits[1:]:
+                    sq = self._incr_temp()
+                    self._ops.append(Op("MUL", sq, res, res))
+                    if bit == "1":
+                        mul = self._incr_temp()
+                        self._ops.append(Op("MUL", mul, sq, b))
+                        res = mul
+                    else:
+                        res = sq
+                return res
+
             case ast.BinOp(left=left, op=op, right=right):
                 opcode = BINOP_MAP.get(type(op))
                 if opcode is None:
@@ -43,6 +76,17 @@ class Flattener(ast.NodeVisitor):
 
             case ast.Compare(left=left, ops=[ast.Lt()], comparators=[right]):
                 return self._emit_binary("LT", left, right)
+
+            # lte: a <= b <-> 1 - (b < a)
+            case ast.Compare(left=left, ops=[ast.LtE()], comparators=[right]):
+                return self._negate_lt(right, left)
+
+            # convert gt to lt
+            case ast.Compare(left=left, ops=[ast.Gt()], comparators=[right]):
+                return self._emit_binary("LT", right, left)
+
+            case ast.Compare(left=left, ops=[ast.GtE()], comparators=[right]):
+                return self._negate_lt(left, right)
 
             case _:
                 raise NotImplementedError(f"unsupported expression: {ast.dump(node)}")
@@ -53,7 +97,7 @@ class Flattener(ast.NodeVisitor):
         if result == dest:
             return
         if prev_ops_len == len(self._ops):
-            # no op was emitted, must be SET
+            # no op was emitted -> SET
             self._ops.append(Op("SET", dest, result))
             return
         last = self._ops[-1]
@@ -71,7 +115,6 @@ class Flattener(ast.NodeVisitor):
         test = node.test
         if not isinstance(test, ast.Compare) or len(test.ops) != 1:
             raise NotImplementedError(f"expected a single comparison at {node.lineno}")
-
         if not isinstance(test.ops[0], ast.Eq):
             raise NotImplementedError(f"assert only supports == at {node.lineno}")
 
