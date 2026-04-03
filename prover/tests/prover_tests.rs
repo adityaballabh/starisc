@@ -1,5 +1,5 @@
 use prover::prover::{prove, verify};
-use test_utils::{assert_proof_rejected, assert_proof_accepted, get_op_path};
+use test_utils::{assert_proof_accepted, assert_proof_rejected, get_op_path};
 use vm::{execute, parse_file, parse_str, Instruction, Trace};
 
 fn parse_program(src: &str) -> Vec<Instruction> {
@@ -205,118 +205,113 @@ fn lt_with_max_u64() {
     ));
 }
 
+mod test_modulo {
+    use super::*;
+    #[test]
+    fn mod_result_eq_0_1() {
+        assert_program_proves(
+            "SET r1 3
+          SET r2 3
+          MOD r3 r1 r2
+          SET r4 0
+          ASSERT_EQ r3 r4",
+        );
+    }
 
-////////////////////////////////////
-/* MOD TEST                       */
+    #[test]
+    fn mod_result_happy_path() {
+        assert_program_proves(
+            "SET r1 4
+          SET r2 3
+          MOD r3 r1 r2
+          SET r4 1
+          ASSERT_EQ r3 r4",
+        );
+    }
 
-#[test]
-fn mod_result_eq_0_1() {
-    assert_program_proves(
-        "SET r1 3
-         SET r2 3
-         MOD r3 r1 r2
-         SET r4 0
-         ASSERT_EQ r3 r4",
-    );
+    #[test]
+    fn mod_result_same() {
+        assert_program_proves(
+            "SET r1 3
+          SET r2 4
+          MOD r3 r1 r2
+          SET r4 3
+          ASSERT_EQ r3 r4",
+        );
+    }
+
+    #[test]
+    fn mod_result_eq_0_2() {
+        assert_program_proves(
+            "SET r1 13137
+          SET r2 1
+          MOD r3 r1 r2
+          SET r4 0
+          ASSERT_EQ r3 r4",
+        );
+    }
 }
 
-#[test]
-fn mod_result_happy_path() {
-    assert_program_proves(
-        "SET r1 4
-         SET r2 3
-         MOD r3 r1 r2
-         SET r4 1
-         ASSERT_EQ r3 r4",
-    );
+mod test_tamper_trace {
+    use super::*;
+    #[test]
+    fn rejects_tampered_register() {
+        let prog = parse_program("SET r1 42");
+        let mut trace = exec_trace(&prog);
+        trace[0].registers[1] += 1337;
+        assert_tamper_rejection(&prog, &trace);
+    }
+
+    #[test]
+    fn rejects_tampered_lt_result() {
+        let prog = parse_program(
+            "SET r1 10
+          SET r2 20
+          LT r3 r1 r2",
+        );
+        let mut trace = exec_trace(&prog);
+        trace[2].registers[3] ^= 1;
+        assert_tamper_rejection(&prog, &trace);
+        trace[2].registers[3] ^= 1;
+        assert_tamper_accepted(&prog, &trace);
+    }
+
+    #[test]
+    fn rejects_tampered_false_assert_eq() {
+        let prog = parse_program(
+            "SET r1 4
+          SET r2 4
+          ASSERT_EQ r1 r2",
+        );
+        let mut trace = exec_trace(&prog);
+        trace[2].registers[2] = 5;
+        assert_tamper_rejection(&prog, &trace);
+    }
 }
 
-#[test]
-fn mod_result_same() {
-    assert_program_proves(
-        "SET r1 3
-         SET r2 4
-         MOD r3 r1 r2
-         SET r4 3
-         ASSERT_EQ r3 r4",
-    );
+mod test_error {
+    use super::*;
+    #[test]
+    fn exec_assert_eq_fail() {
+        let prog = parse_program(
+            "SET r1 4
+          SET r2 5
+          ASSERT_EQ r1 r2",
+        );
+        let err = execute(&prog).unwrap_err();
+        assert_eq!(err.pc, 2);
+        assert!(err.message.contains("ASSERT_EQ failed"));
+    }
+
+    #[test]
+    fn exec_mod_div_by_zero() {
+        let prog = parse_program(
+            "SET r1 4
+          SET r2 0
+          MOD r3 r1 r2",
+        );
+        let err = execute(&prog).unwrap_err();
+        assert_eq!(err.pc, 2);
+        assert!(err.message.contains("division by 0 in MOD"));
+    }
 }
-
-#[test]
-fn mod_result_eq_0_2() {
-    assert_program_proves(
-        "SET r1 13137
-         SET r2 1
-         MOD r3 r1 r2
-         SET r4 0
-         ASSERT_EQ r3 r4",
-    );
-}
-
-
-////////////////////////////////////
-
-////////////////////////////////////
-/* this simply modifies the trace */
-#[test]
-fn rejects_tampered_register() {
-    let prog = parse_program("SET r1 42");
-    let mut trace = exec_trace(&prog);
-    trace[0].registers[1] += 1337;
-    assert_tamper_rejection(&prog, &trace);
-}
-
-#[test]
-fn rejects_tampered_lt_result() {
-    let prog = parse_program(
-        "SET r1 10
-         SET r2 20
-         LT r3 r1 r2",
-    );
-    let mut trace = exec_trace(&prog);
-    trace[2].registers[3] ^= 1;
-    assert_tamper_rejection(&prog, &trace);
-    trace[2].registers[3] ^= 1;
-    assert_tamper_accepted(&prog, &trace);
-}
-
-#[test]
-fn rejects_tampered_false_assert_eq() {
-    let prog = parse_program(
-        "SET r1 4
-         SET r2 4
-         ASSERT_EQ r1 r2",
-    );
-    let mut trace = exec_trace(&prog);
-    trace[2].registers[2] = 5;
-    assert_tamper_rejection(&prog, &trace);
-}
-
-////////////////////////////////////
-
-////////////////////////////////////
-/* error test case                */
-#[test]
-fn exec_assert_eq_fail() {
-    let prog = parse_program(
-        "SET r1 4
-         SET r2 5
-         ASSERT_EQ r1 r2",
-    );
-    let err = execute(&prog).unwrap_err();
-    assert_eq!(err.pc, 2);
-    assert!(err.message.contains("ASSERT_EQ failed"));
-}
-
-#[test]
-fn exec_mod_div_by_zero() {
-    let prog = parse_program(
-        "SET r1 4
-         SET r2 0
-         MOD r3 r1 r2",
-    );
-    let err = execute(&prog).unwrap_err();
-    assert_eq!(err.pc, 2);
-    assert!(err.message.contains("division by 0 in MOD"));
-}
-////////////////////////////////////

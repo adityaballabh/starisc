@@ -47,7 +47,7 @@ pub fn get_bits_used(prog: &[Instruction], vm_trace: &Trace) -> u64 {
         } else if let Instruction::Mod { src1, src2, .. } = instr {
             let (_, s2) = get_ops(&regs, *src1, *src2);
             let res = row.registers[instr_dest(instr) as usize];
-            debug_assert!(s2 != 0, "MOD by zero should not reach trace building");
+
             s2 - res - 1
         } else {
             // decomp res for range check (non-lt)
@@ -169,7 +169,6 @@ pub fn build_trace(prog: &[Instruction], vm_trace: &Trace) -> TraceTable<Felt> {
             }
             Instruction::Mod { src1, src2, .. } => {
                 let (a, b) = get_ops(&prev_regs, *src1, *src2);
-                debug_assert!(b != 0, "MOD by zero should not reach trace building");
                 // Store quotient + 1 so the MOD quotient witness is never identically zero.
                 (a, b, a % b, (a / b) + 1, 0)
             }
