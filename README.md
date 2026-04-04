@@ -18,18 +18,27 @@ StaRISC (STARK RISC) is a minimal zkVM with a restricted 7-opcode ISA built on t
 
 ## Pipeline
 
-`.py` → `Compiler` → `.op` → `Parser` → `Interpreter` → `Trace` → `Winterfell Prover`
+.py → `Compiler Frontend` → IR → `Compiler Backend` → .op → `Parser` → `Interpreter` → Trace → `Winterfell Prover` → Proof
 
 ## Progress
+### Compiler
+-  Compiler frontend
 
--  Parser — reads `.op` files into `Vec<Instruction>`
--  Interpreter — executes `Vec<Instruction>`, returns `(Trace, final_registers)`. Trace contains the snapshot of all registers after each instruction.
+    Flattens and converts .py files into intermediate representation (IR)
+-  Compiler backend
+    
+   **Pending**
+### VM
+-  Parser
 
+    Reads `.op` files into `Vec<Instruction>`
+-  Interpreter
 
-## Usage
+    Executes `Vec<Instruction>`, returns `(Trace, final_registers)`. Trace contains the snapshot of all registers after each instruction
+### Winterfell Prover
+-  Prover
 
-```
-cargo run -p vm
-```
+    Proves the execution trace satisfies the AIR constraints and generates a STARK proof
+-  Verifier
 
-Executes [`examples/sample.op`](examples/sample.op) and writes a trace to [`logs/trace.log`](logs/trace.log)
+    Checks the STARK proof against the AIR constraints
