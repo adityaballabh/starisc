@@ -111,6 +111,11 @@ class Flattener(ast.NodeVisitor):
 
         self._assign_to(dest.id, node.value)
 
+    def generic_visit(self, node):
+        if isinstance(node, ast.stmt):
+            raise NotImplementedError(f"{type(node).__name__} is not supported")
+        super().generic_visit(node)
+
     def visit_Assert(self, node):
         test = node.test
         if not isinstance(test, ast.Compare) or len(test.ops) != 1:
