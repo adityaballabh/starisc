@@ -1,0 +1,8 @@
+[package]
+name = "bench"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+vm = { path = "../vm" }
+prover = { path = "../prover" }
