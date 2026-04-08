@@ -1,15 +1,9 @@
 import unittest
 from pathlib import Path
 
+from .backend import allocate_registers, compute_liveness, emit_ops, optimize_ops
 from .op import Op
-from .pipeline import (
-    allocate_registers,
-    compile_first_stage,
-    compile_to_op,
-    compute_liveness,
-    emit_ops,
-    optimize_ops,
-)
+from .pipeline import compile_first_stage, compile_to_op
 
 
 def read(name):
