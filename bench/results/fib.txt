@@ -1,1 +1,0 @@
-fib: prove=2.880ms  verify=0.540ms  proof=54KB
