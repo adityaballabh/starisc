@@ -27,7 +27,7 @@ StaRISC (STARK RISC) is a minimal zkVM with a restricted 7-opcode ISA built on t
     Flattens and converts .py files into intermediate representation (IR)
 -  Compiler backend
     
-   **Pending**
+    Converts IR into `.op` files
 ### VM
 -  Parser
 
@@ -42,3 +42,22 @@ StaRISC (STARK RISC) is a minimal zkVM with a restricted 7-opcode ISA built on t
 -  Verifier
 
     Checks the STARK proof against the AIR constraints
+
+### Benchmarking
+- Benchmarks StaRISC against RiscZero for simple programs
+
+    [StaRISC Results](starisc-bench/results/)
+
+    [RISC Zero Results](risczero-bench/results/)
+
+## Usage
+
+  Run StaRISC benchmarks
+  ```
+  cargo run --release -p starisc-bench
+  ```
+
+  Run RiscZero benchmarks
+  ```
+  cd risczero-bench && cargo run --release
+  ```
