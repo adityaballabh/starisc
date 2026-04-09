@@ -8,6 +8,7 @@ class Flattener(ast.NodeVisitor):
     def __init__(self):
         self._ops = []
         self._next_temp = 0
+        self._consts = {}
 
     def run(self, tree):
         self.visit(tree)
@@ -33,6 +34,15 @@ class Flattener(ast.NodeVisitor):
         self._ops.append(Op("SUB", t, one, lt))
         return t
 
+    def _const_int(self, node):
+        match node:
+            case ast.Constant(value=v) if isinstance(v, int):
+                return v
+            case ast.Name(id=name):
+                return self._consts.get(name)
+            case _:
+                return None
+
     def _flatten_expr(self, node):
         match node:
             case ast.Name(id=name):
@@ -43,11 +53,48 @@ class Flattener(ast.NodeVisitor):
                 self._ops.append(Op("SET", t, str(v)))
                 return t
 
-            case ast.BinOp(left=base, op=ast.Pow(), right=ast.Constant(value=exp)):
-                # exponent must be a compile-time constant (otherwise loops are needed)
-                if not isinstance(exp, int) or exp < 0:
+            # (base ** exp) % mod -> perform MOD after each MUL
+            case ast.BinOp(
+                left=ast.BinOp(left=base, op=ast.Pow(), right=exp_node),
+                op=ast.Mod(),
+                right=mod_node,
+            ):
+                exp = self._const_int(exp_node)
+                if exp is None or exp < 0:
                     raise TypeError(
-                        f"exponent must be a non-negative integer constant, got {exp}"
+                        "exponent must be a non-negative integer constant, "
+                        f"got {ast.dump(exp_node)}"
+                    )
+                b = self._flatten_expr(base)
+                m = self._flatten_expr(mod_node)
+                if exp == 0:
+                    t = self._incr_temp()
+                    self._ops.append(Op("SET", t, "1"))
+                    return t
+                res = b
+                bits = bin(exp)[2:]
+                for bit in bits[1:]:
+                    sq = self._incr_temp()
+                    self._ops.append(Op("MUL", sq, res, res))
+                    sq_mod = self._incr_temp()
+                    self._ops.append(Op("MOD", sq_mod, sq, m))
+                    if bit == "1":
+                        mul = self._incr_temp()
+                        self._ops.append(Op("MUL", mul, sq_mod, b))
+                        mul_mod = self._incr_temp()
+                        self._ops.append(Op("MOD", mul_mod, mul, m))
+                        res = mul_mod
+                    else:
+                        res = sq_mod
+                return res
+
+            case ast.BinOp(left=base, op=ast.Pow(), right=exp_node):
+                # exponent must be a compile-time constant (otherwise loops are needed)
+                exp = self._const_int(exp_node)
+                if exp is None or exp < 0:
+                    raise TypeError(
+                        "exponent must be a non-negative integer constant, "
+                        f"got {ast.dump(exp_node)}"
                     )
                 b = self._flatten_expr(base)
                 if exp == 0:
@@ -92,17 +139,30 @@ class Flattener(ast.NodeVisitor):
                 raise NotImplementedError(f"unsupported expression: {ast.dump(node)}")
 
     def _assign_to(self, dest, value_node):
+        const_value = self._const_int(value_node)
         prev_ops_len = len(self._ops)
         result = self._flatten_expr(value_node)
         if result == dest:
+            if const_value is not None:
+                self._consts[dest] = const_value
+            else:
+                self._consts.pop(dest, None)
             return
         if prev_ops_len == len(self._ops):
             # no op was emitted -> SET
             self._ops.append(Op("SET", dest, result))
+            if const_value is not None:
+                self._consts[dest] = const_value
+            else:
+                self._consts.pop(dest, None)
             return
         last = self._ops[-1]
         self._ops[-1] = Op(last.opcode, dest, last.src1, last.src2)
         self._next_temp -= 1
+        if const_value is not None:
+            self._consts[dest] = const_value
+        else:
+            self._consts.pop(dest, None)
 
     def visit_Assign(self, node):
         dest = node.targets[0]

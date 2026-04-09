@@ -24,8 +24,6 @@ pub fn assert_proof_accepted<Proof, ProveErr, VerifyErr>(
 
 pub fn get_op_path(name: &str) -> String {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
         .join("examples")
         .join(format!("{}.op", name))
         .to_str()
