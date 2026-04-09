@@ -1,1 +1,1 @@
-fib_16: prove=65.590ms  verify=3.944ms  proof=60KB
+fib_16: prove=2.044ms  verify=0.276ms  proof=60KB

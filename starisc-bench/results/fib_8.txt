@@ -1,1 +1,1 @@
-fib_8: prove=31.650ms  verify=3.444ms  proof=54KB
+fib_8: prove=1.044ms  verify=0.234ms  proof=54KB
