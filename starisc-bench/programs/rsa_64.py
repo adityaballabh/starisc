@@ -8,7 +8,7 @@ e = 65537
 d = 2145513473
 
 message = 1337
-encrypted = (message ** e) % n
-decrypted = (encrypted ** d) % n
+encrypted = (message**e) % n
+decrypted = (encrypted**d) % n
 
 assert message == decrypted
