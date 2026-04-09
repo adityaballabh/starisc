@@ -151,6 +151,44 @@ class TestPow(unittest.TestCase):
             compile_first_stage("p = 2\nq = 8\nres = p ** q")
 
 
+class TestModPow(unittest.TestCase):
+    def test_mod_pow_zero(self):
+        self.assertEqual(
+            compile_first_stage("a = 7\nm = 95\nres = (a ** 0) % m"),
+            [
+                Op("SET", "a", "7"),
+                Op("SET", "m", "95"),
+                Op("SET", "res", "1"),
+            ],
+        )
+
+    def test_mod_pow_five(self):
+        self.assertEqual(
+            compile_first_stage("a = 452319\nm = 83\nres = (a ** 5) % m"),
+            [
+                Op("SET", "a", "452319"),
+                Op("SET", "m", "83"),
+                Op("MUL", "t0", "a", "a"),
+                Op("MOD", "t1", "t0", "m"),
+                Op("MUL", "t2", "t1", "t1"),
+                Op("MOD", "t3", "t2", "m"),
+                Op("MUL", "t4", "t3", "a"),
+                Op("MOD", "res", "t4", "m"),
+            ],
+        )
+
+    def test_mod_pow_correctness(self):
+        result = compile_to_op(
+            "mod = 4294967291\n"
+            "secret = 2301\n"
+            "encrypted = (secret ** 41) % mod\n"
+            "assert encrypted == 921857120"
+        )
+        self.assertIn("MUL", result)
+        self.assertIn("MOD", result)
+        self.assertIn("ASSERT_EQ", result)
+
+
 class TestAssert(unittest.TestCase):
     def test_assert_vars(self):
         self.assertEqual(

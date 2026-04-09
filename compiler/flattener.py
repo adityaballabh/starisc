@@ -43,6 +43,39 @@ class Flattener(ast.NodeVisitor):
                 self._ops.append(Op("SET", t, str(v)))
                 return t
 
+            # (base ** exp) % mod -> perform MOD after each MUL
+            case ast.BinOp(
+                left=ast.BinOp(left=base, op=ast.Pow(), right=ast.Constant(value=exp)),
+                op=ast.Mod(),
+                right=mod_node,
+            ):
+                if not isinstance(exp, int) or exp < 0:
+                    raise TypeError(
+                        f"exponent must be a non-negative integer constant, got {exp}"
+                    )
+                b = self._flatten_expr(base)
+                m = self._flatten_expr(mod_node)
+                if exp == 0:
+                    t = self._incr_temp()
+                    self._ops.append(Op("SET", t, "1"))
+                    return t
+                res = b
+                bits = bin(exp)[2:]
+                for bit in bits[1:]:
+                    sq = self._incr_temp()
+                    self._ops.append(Op("MUL", sq, res, res))
+                    sq_mod = self._incr_temp()
+                    self._ops.append(Op("MOD", sq_mod, sq, m))
+                    if bit == "1":
+                        mul = self._incr_temp()
+                        self._ops.append(Op("MUL", mul, sq_mod, b))
+                        mul_mod = self._incr_temp()
+                        self._ops.append(Op("MOD", mul_mod, mul, m))
+                        res = mul_mod
+                    else:
+                        res = sq_mod
+                return res
+
             case ast.BinOp(left=base, op=ast.Pow(), right=ast.Constant(value=exp)):
                 # exponent must be a compile-time constant (otherwise loops are needed)
                 if not isinstance(exp, int) or exp < 0:
