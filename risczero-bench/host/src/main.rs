@@ -1,4 +1,4 @@
-use methods::{FIB_ELF, FIB_ID};
+use methods::{FIB_ELF, FIB_ID, RSA_64_ELF, RSA_64_ID};
 use risc0_zkvm::{default_prover, ExecutorEnv};
 use std::fs;
 use std::path::Path;
@@ -42,6 +42,10 @@ fn bench_fib(res_dir: &Path) {
     }
 }
 
+fn bench_rsa_64(res_dir: &Path) {
+    bench("rsa_64", &(), RSA_64_ELF, RSA_64_ID, res_dir);
+}
+
 fn main() {
     let res_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -50,4 +54,5 @@ fn main() {
     fs::create_dir_all(&res_dir).unwrap();
 
     bench_fib(&res_dir);
+    bench_rsa_64(&res_dir);
 }
