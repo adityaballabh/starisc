@@ -142,13 +142,29 @@ class TestPow(unittest.TestCase):
             ],
         )
 
+    def test_pow_named_const(self):
+        self.assertEqual(
+            compile_first_stage("e = 5\na = 7\nb = a ** e"),
+            [
+                Op("SET", "e", "5"),
+                Op("SET", "a", "7"),
+                Op("MUL", "t0", "a", "a"),
+                Op("MUL", "t1", "t0", "t0"),
+                Op("MUL", "b", "t1", "a"),
+            ],
+        )
+
     def test_pow_neg_raises(self):
         with self.assertRaises(TypeError):
             compile_first_stage("c = 11\ne = c ** -1")
 
     def test_pow_var_raises(self):
         with self.assertRaises(TypeError):
-            compile_first_stage("p = 2\nq = 8\nres = p ** q")
+            compile_first_stage("p = 2\nq = p + 15\nres = p ** q")
+
+    def test_pow_reassigned_name_raises(self):
+        with self.assertRaises(TypeError):
+            compile_first_stage("e = 5\ne = e + 1\na = 7\nres = a ** e")
 
 
 class TestModPow(unittest.TestCase):
@@ -177,12 +193,25 @@ class TestModPow(unittest.TestCase):
             ],
         )
 
+    def test_mod_pow_named_const(self):
+        self.assertEqual(
+            compile_first_stage("e = 5\na = 234871\nm = 59\nres = (a ** e) % m"),
+            [
+                Op("SET", "e", "5"),
+                Op("SET", "a", "234871"),
+                Op("SET", "m", "59"),
+                Op("MUL", "t0", "a", "a"),
+                Op("MOD", "t1", "t0", "m"),
+                Op("MUL", "t2", "t1", "t1"),
+                Op("MOD", "t3", "t2", "m"),
+                Op("MUL", "t4", "t3", "a"),
+                Op("MOD", "res", "t4", "m"),
+            ],
+        )
+
     def test_mod_pow_correctness(self):
         result = compile_to_op(
-            "mod = 4294967291\n"
-            "secret = 2301\n"
-            "encrypted = (secret ** 41) % mod\n"
-            "assert encrypted == 921857120"
+            "m = 4294967296\ns = 2301\ne = (s ** 41) % m\nassert e == 1614534813"
         )
         self.assertIn("MUL", result)
         self.assertIn("MOD", result)
