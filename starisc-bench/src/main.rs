@@ -4,7 +4,7 @@ use std::io::Write as IoWrite;
 use std::path::Path;
 use std::process::Command;
 use std::time::Instant;
-use vm::{dump_trace, execute, parse_file};
+use vm::{execute, parse_file, write_trace_table};
 
 const RUNS: usize = 5;
 
@@ -21,10 +21,10 @@ fn compile(path: &Path) -> String {
 
 fn bench_once(name: &str, op_path: &str, log_dir: &Path) -> (f64, f64, usize) {
     let prog = parse_file(op_path).unwrap();
-    let (trace, regs) = execute(&prog).unwrap();
+    let (trace, _) = execute(&prog).unwrap();
 
     let trace_path = log_dir.join(format!("{}.trace.txt", name));
-    dump_trace(&prog, &trace, &regs, trace_path.to_str().unwrap()).unwrap();
+    write_trace_table(&prog, &trace, trace_path.to_str().unwrap()).unwrap();
 
     let t_proof = Instant::now();
     let proof = prove(&prog, &trace).unwrap();
@@ -84,7 +84,7 @@ fn main() {
             totals.1 / n,
             totals.2 / RUNS
         );
-        print!("{}: {}\n", name, avg);
+        println!("{}: {}", name, avg);
         let mut f = OpenOptions::new().append(true).open(&out_path).unwrap();
         f.write_all(avg.as_bytes()).unwrap();
     }

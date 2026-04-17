@@ -57,7 +57,7 @@ fn bench<T: serde::Serialize>(name: &str, input: &T, elf: &[u8], id: [u32; 8], r
         totals.1 / n,
         totals.2 / RUNS
     );
-    print!("{}: {}\n", name, avg);
+    println!("{}: {}", name, avg);
     let mut f = OpenOptions::new().append(true).open(&out_path).unwrap();
     f.write_all(avg.as_bytes()).unwrap();
 }
