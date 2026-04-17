@@ -1,1 +1,6 @@
-rsa_64: prove=3438.835ms  verify=9.959ms  proof=216KB
+run 1: prove=3328.415ms  verify=9.944ms  proof=216KB
+run 2: prove=3397.556ms  verify=9.783ms  proof=216KB
+run 3: prove=3378.333ms  verify=9.760ms  proof=216KB
+run 4: prove=3338.914ms  verify=9.850ms  proof=216KB
+run 5: prove=3337.251ms  verify=9.816ms  proof=216KB
+avg(5): prove=3356.094ms  verify=9.831ms  proof=216KB
