@@ -1,0 +1,21 @@
+  PC  Instruction            r1   r2  r3
+----------------------------------------
+   0  SET       r2 0          0    0   0
+   1  SET       r1 1          1    0   0
+   2  ADD       r2 r2 r1      1    1   0
+   3  ADD       r1 r1 r2      2    1   0
+   4  ADD       r2 r2 r1      2    3   0
+   5  ADD       r1 r1 r2      5    3   0
+   6  ADD       r2 r2 r1      5    8   0
+   7  ADD       r1 r1 r2     13    8   0
+   8  ADD       r2 r2 r1     13   21   0
+   9  ADD       r3 r1 r2     13   21  34
+  10  ADD       r1 r2 r3     55   21  34
+  11  ADD       r2 r3 r1     55   89  34
+  12  ADD       r1 r1 r2    144   89  34
+  13  ADD       r2 r2 r1    144  233  34
+  14  ADD       r1 r1 r2    377  233  34
+  15  ADD       r2 r2 r1    377  610  34
+  16  ADD       r1 r1 r2    987  610  34
+  17  SET       r2 987      987  987  34
+  18  ASSERT_EQ r1 r2       987  987  34

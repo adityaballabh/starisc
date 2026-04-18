@@ -1,1 +1,6 @@
-fib_8: prove=1800.920ms  verify=9.155ms  proof=204KB
+run 1: prove=1738.010ms  verify=9.182ms  proof=204KB
+run 2: prove=1727.469ms  verify=9.241ms  proof=204KB
+run 3: prove=1692.936ms  verify=9.165ms  proof=204KB
+run 4: prove=1738.093ms  verify=9.156ms  proof=204KB
+run 5: prove=1751.390ms  verify=9.233ms  proof=204KB
+avg(5): prove=1729.580ms  verify=9.195ms  proof=204KB
