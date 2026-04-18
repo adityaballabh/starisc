@@ -4,15 +4,15 @@ StaRISC (STARK RISC) is a minimal zkVM with a restricted 7-opcode ISA built on t
 
 ## Instruction Set
 
-| Opcode | Syntax | Semantics |
-|---|---|---|
-| `SET` | `SET r val` | `r = val` |
-| `ADD` | `ADD dest src1 src2` | `dest = src1 + src2` |
-| `SUB` | `SUB dest src1 src2` | `dest = src1 - src2` |
-| `MUL` | `MUL dest src1 src2` | `dest = src1 * src2` |
-| `MOD` | `MOD dest src1 src2` | `dest = src1 % src2` |
-| `ASSERT_EQ` | `ASSERT_EQ r1 r2` | halt if `r1 != r2` |
-| `LT` | `LT dest src1 src2` | `dest = (src1 < src2) as u64` |
+| Opcode      | Syntax               | Semantics                     |
+| ----------- | -------------------- | ----------------------------- |
+| `SET`       | `SET r val`          | `r = val`                     |
+| `ADD`       | `ADD dest src1 src2` | `dest = src1 + src2`          |
+| `SUB`       | `SUB dest src1 src2` | `dest = src1 - src2`          |
+| `MUL`       | `MUL dest src1 src2` | `dest = src1 * src2`          |
+| `MOD`       | `MOD dest src1 src2` | `dest = src1 % src2`          |
+| `ASSERT_EQ` | `ASSERT_EQ r1 r2`    | halt if `r1 != r2`            |
+| `LT`        | `LT dest src1 src2`  | `dest = (src1 < src2) as u64` |
 
 16 registers `r0`-`r15`. `r0` is mapped to zero (avoids MOV): reads always return zero, writes are a parse error. All arithmetic is wrapping `u64`.
 
@@ -21,43 +21,62 @@ StaRISC (STARK RISC) is a minimal zkVM with a restricted 7-opcode ISA built on t
 .py → `Compiler Frontend` → IR → `Compiler Backend` → .op → `Parser` → `Interpreter` → Trace → `Winterfell Prover` → Proof
 
 ## Progress
+
 ### Compiler
--  Compiler frontend
 
-    Flattens and converts .py files into intermediate representation (IR)
--  Compiler backend
-    
-    Converts IR into `.op` files
+- Compiler frontend
+
+  Flattens and converts .py files into intermediate representation (IR)
+
+- Compiler backend
+  Converts IR into `.op` files
+
 ### VM
--  Parser
 
-    Reads `.op` files into `Vec<Instruction>`
--  Interpreter
+- Parser
 
-    Executes `Vec<Instruction>`, returns `(Trace, final_registers)`. Trace contains the snapshot of all registers after each instruction
+  Reads `.op` files into `Vec<Instruction>`
+
+- Interpreter
+
+  Executes `Vec<Instruction>`, returns `(Trace, final_registers)`. Trace contains the snapshot of all registers after each instruction
+
 ### Winterfell Prover
--  Prover
 
-    Proves the execution trace satisfies the AIR constraints and generates a STARK proof
--  Verifier
+- Prover
 
-    Checks the STARK proof against the AIR constraints
+  Proves the execution trace satisfies the AIR constraints and generates a STARK proof
+
+- Verifier
+
+  Checks the STARK proof against the AIR constraints
 
 ### Benchmarking
-- Benchmarks StaRISC against RiscZero for simple programs
 
-    [StaRISC Results](starisc-bench/results/)
+- Benchmarks StaRISC against RiscZero and SP1
 
-    [RISC Zero Results](risczero-bench/results/)
+  [StaRISC Results](starisc-bench/results/)
+
+  [RISC Zero Results](risczero-bench/results/)
+
+  [SP1 Results](sp1-bench/results/)
 
 ## Usage
 
-  Run StaRISC benchmarks
-  ```
-  cargo run --release -p starisc-bench
-  ```
+StaRISC benchmarks
 
-  Run RiscZero benchmarks
-  ```
-  cd risczero-bench && cargo run --release
-  ```
+```
+cargo run --release -p starisc-bench
+```
+
+RiscZero benchmarks
+
+```
+cd risczero-bench && cargo run --release
+```
+
+SP1 benchmarks
+
+```
+cd sp1-bench && cargo run --release -p sp1-bench-script
+```
