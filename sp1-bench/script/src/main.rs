@@ -72,7 +72,7 @@ fn bench_fib<P: Prover>(client: &P, res_dir: &Path) {
 
 fn bench_rsa<P: Prover>(client: &P, res_dir: &Path) {
     let pk = client.setup(RSA_ELF).expect("failed to setup rsa elf");
-    bench("rsa_64", client, &pk, res_dir, SP1Stdin::new);
+    bench("rsa_32", client, &pk, res_dir, SP1Stdin::new);
 }
 
 fn main() {
