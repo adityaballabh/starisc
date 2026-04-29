@@ -9,6 +9,7 @@ pub enum Instruction {
     Mod { dest: u8, src1: u8, src2: u8 },
     AssertEq { r1: u8, r2: u8 },
     Lt { dest: u8, src1: u8, src2: u8 },
+    Jz { cond: u8, offset: usize },
 }
 
 fn fmt_arith(f: &mut fmt::Formatter<'_>, op: &str, dest: &u8, src1: &u8, src2: &u8) -> fmt::Result {
@@ -25,6 +26,7 @@ impl fmt::Display for Instruction {
             Instruction::Mul { dest, src1, src2 } => fmt_arith(f, "MUL", dest, src1, src2),
             Instruction::Mod { dest, src1, src2 } => fmt_arith(f, "MOD", dest, src1, src2),
             Instruction::Lt { dest, src1, src2 } => fmt_arith(f, "LT", dest, src1, src2),
+            Instruction::Jz { cond, offset } => write!(f, "{:<9} r{} {}", "JZ", cond, offset),
         }
     }
 }

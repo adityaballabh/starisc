@@ -47,6 +47,20 @@ fn parse_val(token: &str, line: usize) -> Result<u64, ParseError> {
     })
 }
 
+fn parse_offset(token: &str, line: usize) -> Result<usize, ParseError> {
+    let offset: usize = token.parse().map_err(|_| ParseError {
+        line,
+        message: format!("expected positive jump offset, got {:?}", token),
+    })?;
+    if offset == 0 {
+        return Err(ParseError {
+            line,
+            message: "JZ offset must be greater than 0".to_string(),
+        });
+    }
+    Ok(offset)
+}
+
 fn parse_arith_args(tokens: &[&str], line: usize) -> Result<(u8, u8, u8), ParseError> {
     Ok((
         parse_dest_register(tokens[1], line)?,
@@ -119,6 +133,13 @@ pub fn parse_str(input: &str) -> Result<Vec<Instruction>, ParseError> {
                 let (dest, src1, src2) = parse_arith_args(&tokens, line_num)?;
                 Instruction::Lt { dest, src1, src2 }
             }
+            "JZ" => {
+                expect_argc("JZ", 2, argc, line_num)?;
+                Instruction::Jz {
+                    cond: parse_register(tokens[1], line_num)?,
+                    offset: parse_offset(tokens[2], line_num)?,
+                }
+            }
             other => {
                 return Err(ParseError {
                     line: line_num,
@@ -127,6 +148,22 @@ pub fn parse_str(input: &str) -> Result<Vec<Instruction>, ParseError> {
             }
         };
         instructions.push(instr);
+    }
+
+    for (i, instr) in instructions.iter().enumerate() {
+        if let Instruction::Jz { offset, .. } = instr {
+            let target = i + 1 + offset;
+            if target > instructions.len() {
+                return Err(ParseError {
+                    line: i + 1,
+                    message: format!(
+                        "JZ target {} is past program end {}",
+                        target,
+                        instructions.len()
+                    ),
+                });
+            }
+        }
     }
 
     Ok(instructions)
