@@ -2,6 +2,7 @@ use crate::air::VmAir;
 use crate::public_inputs::PublicInputs;
 use crate::trace_builder::{
     build_trace, get_bits_used, get_nonzero_sources, get_trace_len, get_wrap_bits_used,
+    has_not_taken_jz, has_taken_jz,
 };
 use crate::Felt;
 use vm::{Instruction, Trace};
@@ -38,6 +39,8 @@ impl VmProver {
         wrap_bits_used: u64,
         has_nonzero_src1: bool,
         has_nonzero_src2: bool,
+        has_taken_jz: bool,
+        has_not_taken_jz: bool,
     ) -> Self {
         let trace_len = get_trace_len(prog);
         let options = ProofOptions::new(
@@ -55,6 +58,8 @@ impl VmProver {
             wrap_bits_used,
             has_nonzero_src1,
             has_nonzero_src2,
+            has_taken_jz,
+            has_not_taken_jz,
         );
         Self {
             options,
@@ -125,12 +130,15 @@ impl Prover for VmProver {
 
 pub fn prove(prog: &[Instruction], vm_trace: &Trace) -> Result<Proof, ProverError> {
     let (has_nonzero_src1, has_nonzero_src2) = get_nonzero_sources(prog, vm_trace);
+    let taken_jz = has_taken_jz(prog, vm_trace);
     let prover = VmProver::new(
         prog,
         get_bits_used(prog, vm_trace),
         get_wrap_bits_used(prog, vm_trace),
         has_nonzero_src1,
         has_nonzero_src2,
+        taken_jz,
+        has_not_taken_jz(prog, vm_trace),
     );
     let trace = build_trace(prog, vm_trace);
     prover.prove(trace)
@@ -140,6 +148,7 @@ pub fn verify(prog: &[Instruction], proof: Proof) -> Result<(), VerifierError> {
     let trace_len = get_trace_len(prog);
     let vm_trace = &vm::execute(prog).expect(EXEC_ERR).0;
     let (has_nonzero_src1, has_nonzero_src2) = get_nonzero_sources(prog, vm_trace);
+    let taken_jz = has_taken_jz(prog, vm_trace);
     let pub_inputs = PublicInputs::new(
         prog.to_vec(),
         trace_len,
@@ -147,6 +156,8 @@ pub fn verify(prog: &[Instruction], proof: Proof) -> Result<(), VerifierError> {
         get_wrap_bits_used(prog, vm_trace),
         has_nonzero_src1,
         has_nonzero_src2,
+        taken_jz,
+        has_not_taken_jz(prog, vm_trace),
     );
     let min_proof_bits = AcceptableOptions::MinConjecturedSecurity(MIN_VERIFY_SECURITY_BITS);
     winterfell::verify::<
@@ -181,6 +192,8 @@ mod tests {
             get_wrap_bits_used(&prog, &vm_trace),
             has_nonzero_src1,
             has_nonzero_src2,
+            has_taken_jz(&prog, &vm_trace),
+            has_not_taken_jz(&prog, &vm_trace),
         );
         let (prog_clone, trace_clone) = (prog.clone(), trace);
         assert_proof_rejected(
