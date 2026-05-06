@@ -39,6 +39,14 @@ pub struct PublicInputs {
     pub has_not_taken_jz: bool,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct PublicInputFlags {
+    pub has_nonzero_src1: bool,
+    pub has_nonzero_src2: bool,
+    pub has_taken_jz: bool,
+    pub has_not_taken_jz: bool,
+}
+
 fn set_selectors(
     cols: &mut [Vec<Felt>],
     i: usize,
@@ -65,10 +73,7 @@ impl PublicInputs {
         trace_len: usize,
         bits_used: u64,
         wrap_bits_used: u64,
-        has_nonzero_src1: bool,
-        has_nonzero_src2: bool,
-        has_taken_jz: bool,
-        has_not_taken_jz: bool,
+        flags: PublicInputFlags,
     ) -> Self {
         let mut dest_mask = [false; 16];
         let mut has_mul = false;
@@ -110,15 +115,15 @@ impl PublicInputs {
             dest_mask,
             bits_used,
             wrap_bits_used,
-            has_nonzero_src1,
-            has_nonzero_src2,
+            has_nonzero_src1: flags.has_nonzero_src1,
+            has_nonzero_src2: flags.has_nonzero_src2,
             has_mul,
             has_assert_eq,
             has_lt,
             has_mod,
             has_jz,
-            has_taken_jz,
-            has_not_taken_jz,
+            has_taken_jz: flags.has_taken_jz,
+            has_not_taken_jz: flags.has_not_taken_jz,
         }
     }
 

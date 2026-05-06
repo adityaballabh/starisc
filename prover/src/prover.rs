@@ -1,5 +1,5 @@
 use crate::air::VmAir;
-use crate::public_inputs::PublicInputs;
+use crate::public_inputs::{PublicInputFlags, PublicInputs};
 use crate::trace_builder::{
     build_trace, get_bits_used, get_nonzero_sources, get_trace_len, get_wrap_bits_used,
     has_not_taken_jz, has_taken_jz,
@@ -37,10 +37,7 @@ impl VmProver {
         prog: &[Instruction],
         bits_used: u64,
         wrap_bits_used: u64,
-        has_nonzero_src1: bool,
-        has_nonzero_src2: bool,
-        has_taken_jz: bool,
-        has_not_taken_jz: bool,
+        flags: PublicInputFlags,
     ) -> Self {
         let trace_len = get_trace_len(prog);
         let options = ProofOptions::new(
@@ -51,16 +48,8 @@ impl VmProver {
             FRI_FOLDING_FACTOR,
             FRI_REMAINDER_MAX_DEGREE,
         );
-        let pub_inputs = PublicInputs::new(
-            prog.to_vec(),
-            trace_len,
-            bits_used,
-            wrap_bits_used,
-            has_nonzero_src1,
-            has_nonzero_src2,
-            has_taken_jz,
-            has_not_taken_jz,
-        );
+        let pub_inputs =
+            PublicInputs::new(prog.to_vec(), trace_len, bits_used, wrap_bits_used, flags);
         Self {
             options,
             pub_inputs,
@@ -130,15 +119,17 @@ impl Prover for VmProver {
 
 pub fn prove(prog: &[Instruction], vm_trace: &Trace) -> Result<Proof, ProverError> {
     let (has_nonzero_src1, has_nonzero_src2) = get_nonzero_sources(prog, vm_trace);
-    let taken_jz = has_taken_jz(prog, vm_trace);
+    let flags = PublicInputFlags {
+        has_nonzero_src1,
+        has_nonzero_src2,
+        has_taken_jz: has_taken_jz(prog, vm_trace),
+        has_not_taken_jz: has_not_taken_jz(prog, vm_trace),
+    };
     let prover = VmProver::new(
         prog,
         get_bits_used(prog, vm_trace),
         get_wrap_bits_used(prog, vm_trace),
-        has_nonzero_src1,
-        has_nonzero_src2,
-        taken_jz,
-        has_not_taken_jz(prog, vm_trace),
+        flags,
     );
     let trace = build_trace(prog, vm_trace);
     prover.prove(trace)
@@ -148,16 +139,18 @@ pub fn verify(prog: &[Instruction], proof: Proof) -> Result<(), VerifierError> {
     let trace_len = get_trace_len(prog);
     let vm_trace = &vm::execute(prog).expect(EXEC_ERR).0;
     let (has_nonzero_src1, has_nonzero_src2) = get_nonzero_sources(prog, vm_trace);
-    let taken_jz = has_taken_jz(prog, vm_trace);
+    let flags = PublicInputFlags {
+        has_nonzero_src1,
+        has_nonzero_src2,
+        has_taken_jz: has_taken_jz(prog, vm_trace),
+        has_not_taken_jz: has_not_taken_jz(prog, vm_trace),
+    };
     let pub_inputs = PublicInputs::new(
         prog.to_vec(),
         trace_len,
         get_bits_used(prog, vm_trace),
         get_wrap_bits_used(prog, vm_trace),
-        has_nonzero_src1,
-        has_nonzero_src2,
-        taken_jz,
-        has_not_taken_jz(prog, vm_trace),
+        flags,
     );
     let min_proof_bits = AcceptableOptions::MinConjecturedSecurity(MIN_VERIFY_SECURITY_BITS);
     winterfell::verify::<
@@ -185,15 +178,18 @@ mod tests {
         let mut trace = build_trace(&prog, &vm_trace);
         trace.set(RES_COL, 3, Felt::from(u64::MAX) + Felt::ONE);
         let (has_nonzero_src1, has_nonzero_src2) = get_nonzero_sources(&prog, &vm_trace);
+        let flags = PublicInputFlags {
+            has_nonzero_src1,
+            has_nonzero_src2,
+            has_taken_jz: has_taken_jz(&prog, &vm_trace),
+            has_not_taken_jz: has_not_taken_jz(&prog, &vm_trace),
+        };
 
         let prover = VmProver::new(
             &prog,
             get_bits_used(&prog, &vm_trace),
             get_wrap_bits_used(&prog, &vm_trace),
-            has_nonzero_src1,
-            has_nonzero_src2,
-            has_taken_jz(&prog, &vm_trace),
-            has_not_taken_jz(&prog, &vm_trace),
+            flags,
         );
         let (prog_clone, trace_clone) = (prog.clone(), trace);
         assert_proof_rejected(

@@ -57,9 +57,7 @@ impl Air for VmAir {
         }
         degrees[RES_COL] = if pub_inputs.has_taken_jz && pub_inputs.has_mul {
             cyclic(3)
-        } else if pub_inputs.has_taken_jz && has_result_constraint {
-            cyclic(2)
-        } else if pub_inputs.has_mul {
+        } else if (pub_inputs.has_taken_jz && has_result_constraint) || pub_inputs.has_mul {
             cyclic(2)
         } else if has_result_constraint {
             cyclic(1)
