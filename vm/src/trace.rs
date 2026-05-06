@@ -14,7 +14,7 @@ fn used_registers(prog: &[Instruction]) -> Vec<u8> {
             | Instruction::Mul { dest, .. }
             | Instruction::Mod { dest, .. }
             | Instruction::Lt { dest, .. } => used[*dest as usize] = true,
-            Instruction::AssertEq { .. } => {}
+            Instruction::AssertEq { .. } | Instruction::Jz { .. } => {}
         }
     }
     (1..16).filter(|&reg| used[reg as usize]).collect()

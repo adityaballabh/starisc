@@ -1,4 +1,4 @@
-use methods::{FIB_ELF, FIB_ID, RSA_64_ELF, RSA_64_ID};
+use methods::{FIB_ELF, FIB_ID, RSA_32_ELF, RSA_32_ID};
 use risc0_zkvm::{default_prover, ExecutorEnv};
 use std::fs::{self, OpenOptions};
 use std::io::Write as IoWrite;
@@ -69,8 +69,8 @@ fn bench_fib(res_dir: &Path) {
     }
 }
 
-fn bench_rsa_64(res_dir: &Path) {
-    bench("rsa_64", &(), RSA_64_ELF, RSA_64_ID, res_dir);
+fn bench_rsa_32(res_dir: &Path) {
+    bench("rsa_32", &(), rsa_32_ELF, rsa_32_ID, res_dir);
 }
 
 fn main() {
@@ -81,5 +81,5 @@ fn main() {
     fs::create_dir_all(&res_dir).unwrap();
 
     bench_fib(&res_dir);
-    bench_rsa_64(&res_dir);
+    bench_rsa_32(&res_dir);
 }

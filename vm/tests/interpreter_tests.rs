@@ -85,6 +85,44 @@ fn exec_mul() {
 }
 
 #[test]
+fn exec_jz_taken_skips() {
+    let prog = parse_str("SET r6 0\nJZ r6 2\nSET r3 15\nSET r4 25\nSET r5 8").unwrap();
+    let (trace, regs) = execute(&prog).unwrap();
+    assert_eq!(trace.len(), prog.len());
+    assert_eq!(regs[3], 0);
+    assert_eq!(regs[4], 0);
+    assert_eq!(regs[5], 8);
+    assert_eq!(trace[2].registers, trace[1].registers);
+    assert_eq!(trace[3].registers, trace[1].registers);
+}
+
+#[test]
+fn exec_jz_not_taken() {
+    let prog = parse_str("SET r5 1\nJZ r5 2\nSET r8 8\nSET r10 12\nSET r15 20").unwrap();
+    let (_, regs) = execute(&prog).unwrap();
+    assert_eq!(regs[8], 8);
+    assert_eq!(regs[10], 12);
+    assert_eq!(regs[15], 20);
+}
+
+#[test]
+fn exec_jz_to_end() {
+    let prog = parse_str("JZ r0 2\nSET r7 5\nSET r9 6").unwrap();
+    let (trace, regs) = execute(&prog).unwrap();
+    assert_eq!(trace.len(), prog.len());
+    assert_eq!(regs[7], 0);
+    assert_eq!(regs[9], 0);
+}
+
+#[test]
+fn exec_jz_rejects_non_bool() {
+    let prog = parse_str("SET r13 6\nJZ r13 1\nSET r2 4").unwrap();
+    let err = execute(&prog).unwrap_err();
+    assert_eq!(err.pc, 1);
+    assert!(err.message.contains("not boolean"));
+}
+
+#[test]
 fn wrapping_add_overflow() {
     let prog = parse_str(&format!("SET r3 {}\nSET r5 2\nADD r4 r3 r5", u64::MAX)).unwrap();
     let (_, regs) = execute(&prog).unwrap();

@@ -18,8 +18,10 @@ impl fmt::Display for ExecError {
 pub fn execute(prog: &[Instruction]) -> Result<(Trace, [u64; 16]), Box<ExecError>> {
     let mut registers: [u64; 16] = [0; 16];
     let mut trace = Vec::with_capacity(prog.len());
+    let mut pc = 0;
 
-    for (pc, instr) in prog.iter().enumerate() {
+    while pc < prog.len() {
+        let instr = &prog[pc];
         match instr {
             Instruction::Set { dest, val } => {
                 registers[*dest as usize] = *val;
@@ -66,8 +68,37 @@ pub fn execute(prog: &[Instruction]) -> Result<(Trace, [u64; 16]), Box<ExecError
                 }
                 registers[*dest as usize] = registers[*src1 as usize] % divisor;
             }
+            Instruction::Jz { cond, offset } => {
+                let cond_val = registers[*cond as usize];
+                if cond_val != 0 && cond_val != 1 {
+                    return Err(Box::new(ExecError {
+                        pc,
+                        registers,
+                        message: format!("JZ condition r{}={} is not boolean", cond, cond_val),
+                    }));
+                }
+                let target = pc + 1 + offset;
+                if target > prog.len() {
+                    return Err(Box::new(ExecError {
+                        pc,
+                        registers,
+                        message: format!("JZ target {} is past program end {}", target, prog.len()),
+                    }));
+                }
+                trace.push(TraceRow { registers });
+                if cond_val == 0 {
+                    for _ in (pc + 1)..target {
+                        trace.push(TraceRow { registers });
+                    }
+                    pc = target;
+                } else {
+                    pc += 1;
+                }
+                continue;
+            }
         }
         trace.push(TraceRow { registers });
+        pc += 1;
     }
     Ok((trace, registers))
 }

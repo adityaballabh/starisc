@@ -10,8 +10,8 @@ name = "fib"
 path = "src/fib.rs"
 
 [[bin]]
-name = "rsa_64"
-path = "src/rsa_64.rs"
+name = "rsa_32"
+path = "src/rsa_32.rs"
 
 [dependencies]
 risc0-zkvm = { version = "^3.0.5", default-features = false, features = ['std'] }

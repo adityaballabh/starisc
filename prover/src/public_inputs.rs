@@ -2,7 +2,7 @@ use crate::Felt;
 use vm::Instruction;
 use winterfell::math::{FieldElement, ToElements};
 
-pub const NUM_PERIODIC_COLS: usize = 57;
+pub const NUM_PERIODIC_COLS: usize = 59;
 
 pub const P_IS_SET: usize = 0;
 pub const P_IS_ADD: usize = 1;
@@ -12,11 +12,13 @@ pub const P_IS_ASSERT_EQ: usize = 4;
 pub const P_IS_LT: usize = 5;
 pub const P_IS_MOD: usize = 6;
 pub const P_IS_NOP: usize = 7;
+pub const P_IS_JZ: usize = 8;
 // one-hot register selectors for res, src1, src2
-pub const P_RES_BASE: usize = 8;
-pub const P_SRC1_BASE: usize = 24;
-pub const P_SRC2_BASE: usize = 40;
-pub const P_CONST: usize = 56;
+pub const P_RES_BASE: usize = 9;
+pub const P_SRC1_BASE: usize = 25;
+pub const P_SRC2_BASE: usize = 41;
+pub const P_CONST: usize = 57;
+pub const P_OFFSET: usize = 58;
 
 #[derive(Clone, Debug)]
 pub struct PublicInputs {
@@ -32,6 +34,17 @@ pub struct PublicInputs {
     pub has_assert_eq: bool,
     pub has_lt: bool,
     pub has_mod: bool,
+    pub has_jz: bool,
+    pub has_taken_jz: bool,
+    pub has_not_taken_jz: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct PublicInputFlags {
+    pub has_nonzero_src1: bool,
+    pub has_nonzero_src2: bool,
+    pub has_taken_jz: bool,
+    pub has_not_taken_jz: bool,
 }
 
 fn set_selectors(
@@ -60,14 +73,14 @@ impl PublicInputs {
         trace_len: usize,
         bits_used: u64,
         wrap_bits_used: u64,
-        has_nonzero_src1: bool,
-        has_nonzero_src2: bool,
+        flags: PublicInputFlags,
     ) -> Self {
         let mut dest_mask = [false; 16];
         let mut has_mul = false;
         let mut has_assert_eq = false;
         let mut has_lt = false;
         let mut has_mod = false;
+        let mut has_jz = false;
         for instr in &prog {
             match instr {
                 Instruction::Set { dest, .. }
@@ -90,6 +103,9 @@ impl PublicInputs {
                     dest_mask[*dest as usize] = true;
                     has_lt = true;
                 }
+                Instruction::Jz { .. } => {
+                    has_jz = true;
+                }
             }
         }
 
@@ -99,12 +115,15 @@ impl PublicInputs {
             dest_mask,
             bits_used,
             wrap_bits_used,
-            has_nonzero_src1,
-            has_nonzero_src2,
+            has_nonzero_src1: flags.has_nonzero_src1,
+            has_nonzero_src2: flags.has_nonzero_src2,
             has_mul,
             has_assert_eq,
             has_lt,
             has_mod,
+            has_jz,
+            has_taken_jz: flags.has_taken_jz,
+            has_not_taken_jz: flags.has_not_taken_jz,
         }
     }
 
@@ -134,6 +153,10 @@ impl PublicInputs {
                 }
                 Instruction::Mod { dest, src1, src2 } => {
                     set_selectors(&mut cols, i, P_IS_MOD, Some(*dest), *src1, *src2, None)
+                }
+                Instruction::Jz { cond, offset } => {
+                    set_selectors(&mut cols, i, P_IS_JZ, None, *cond, 0, None);
+                    cols[P_OFFSET][i] = Felt::from(*offset as u64);
                 }
             }
         }
@@ -170,6 +193,9 @@ impl ToElements<Felt> for PublicInputs {
                 }
                 Instruction::Mod { dest, src1, src2 } => {
                     (P_IS_MOD, Some(*dest), Some(*src1), Some(*src2), None)
+                }
+                Instruction::Jz { cond, offset } => {
+                    (P_IS_JZ, None, Some(*cond), None, Some(*offset as u64))
                 }
             };
             elements.push(Felt::from(opcode as u64));

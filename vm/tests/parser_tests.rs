@@ -80,6 +80,39 @@ fn parse_lt() {
 }
 
 #[test]
+fn parse_jz() {
+    let instr = parse_str("JZ r11 2\nSET r6 21\nSET r2 15").unwrap();
+    assert_eq!(
+        instr[0],
+        Instruction::Jz {
+            cond: 11,
+            offset: 2
+        }
+    );
+}
+
+#[test]
+fn rejects_jz_zero_offset() {
+    let err = parse_str("JZ r5 0").unwrap_err();
+    assert_eq!(err.line, 1);
+    assert!(err.message.contains("greater than 0"));
+}
+
+#[test]
+fn rejects_jz_invalid_offset() {
+    let err = parse_str("JZ r4 -3").unwrap_err();
+    assert_eq!(err.line, 1);
+    assert!(err.message.contains("offset"));
+}
+
+#[test]
+fn rejects_jz_out_of_bounds() {
+    let err = parse_str("JZ r7 5\nSET r9 3").unwrap_err();
+    assert_eq!(err.line, 1);
+    assert!(err.message.contains("past program end"));
+}
+
+#[test]
 fn rejects_unknown_opcode() {
     let err = parse_str("UNK r8 r9").unwrap_err();
     assert_eq!(err.line, 1);
