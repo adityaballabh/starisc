@@ -1,7 +1,6 @@
 a = 37
 b = 91
-is_lt = a < b
-if is_lt:
+if a < b:
     out = b - a
 else:
     out = a - b
