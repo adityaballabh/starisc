@@ -9,6 +9,7 @@ class Flattener(ast.NodeVisitor):
         self._ops = []
         self._next_temp = 0
         self._consts = {}
+        self._assigned_names = set()
 
     def run(self, tree):
         self.visit(tree)
@@ -22,16 +23,22 @@ class Flattener(ast.NodeVisitor):
     def _emit_binary(self, opcode, left, right):
         lhs = self._flatten_expr(left)
         rhs = self._flatten_expr(right)
+        return self._emit_value_op(opcode, lhs, rhs)
+
+    def _emit_value_op(self, opcode, left, right):
         t = self._incr_temp()
-        self._ops.append(Op(opcode, t, lhs, rhs))
+        self._ops.append(Op(opcode, t, left, right))
         return t
 
     def _negate_lt(self, left, right):
         lt = self._emit_binary("LT", left, right)
+        return self._negate_bool(lt)
+
+    def _negate_bool(self, value):
         one = self._incr_temp()
         self._ops.append(Op("SET", one, "1"))
         t = self._incr_temp()
-        self._ops.append(Op("SUB", t, one, lt))
+        self._ops.append(Op("SUB", t, one, value))
         return t
 
     def _const_int(self, node):
@@ -42,6 +49,67 @@ class Flattener(ast.NodeVisitor):
                 return self._consts.get(name)
             case _:
                 return None
+
+    def _flatten_statements(self, statements, consts):
+        saved_ops = self._ops
+        saved_consts = self._consts
+        saved_assigned_names = self._assigned_names
+
+        self._ops = []
+        self._consts = dict(consts)
+        self._assigned_names = set()
+
+        try:
+            for stmt in statements:
+                self.visit(stmt)
+            return self._ops, self._consts, self._assigned_names
+        finally:
+            self._ops = saved_ops
+            self._consts = saved_consts
+            self._assigned_names = saved_assigned_names
+
+    def _flatten_condition(self, node):
+        match node:
+            case ast.UnaryOp(op=ast.Not(), operand=operand):
+                return self._negate_bool(self._flatten_condition(operand))
+
+            case ast.BoolOp():
+                raise NotImplementedError(
+                    f"unsupported condition: {ast.dump(node, include_attributes=False)}"
+                )
+
+            case ast.Compare(left=left, ops=[op], comparators=[right]):
+                lhs = self._flatten_expr(left)
+                rhs = self._flatten_expr(right)
+
+                match op:
+                    case ast.Lt():
+                        return self._emit_value_op("LT", lhs, rhs)
+                    case ast.Gt():
+                        return self._emit_value_op("LT", rhs, lhs)
+                    case ast.LtE():
+                        return self._negate_bool(self._emit_value_op("LT", rhs, lhs))
+                    case ast.GtE():
+                        return self._negate_bool(self._emit_value_op("LT", lhs, rhs))
+                    case ast.Eq():
+                        left_lt_right = self._emit_value_op("LT", lhs, rhs)
+                        right_lt_left = self._emit_value_op("LT", rhs, lhs)
+                        not_equal = self._emit_value_op(
+                            "ADD", left_lt_right, right_lt_left
+                        )
+                        return self._negate_bool(not_equal)
+                    case ast.NotEq():
+                        left_lt_right = self._emit_value_op("LT", lhs, rhs)
+                        right_lt_left = self._emit_value_op("LT", rhs, lhs)
+                        return self._emit_value_op("ADD", left_lt_right, right_lt_left)
+                    case _:
+                        raise NotImplementedError(
+                            f"unsupported condition: {ast.dump(node, include_attributes=False)}"
+                        )
+
+            case _:
+                value = self._flatten_expr(node)
+                return self._emit_value_op("LT", "r0", value)
 
     def _flatten_expr(self, node):
         match node:
@@ -170,6 +238,35 @@ class Flattener(ast.NodeVisitor):
             raise TypeError(f"unsupported target: {type(dest).__name__}")
 
         self._assign_to(dest.id, node.value)
+        self._assigned_names.add(dest.id)
+
+    def visit_If(self, node):
+        condition = self._flatten_condition(node.test)
+        consts_after_condition = dict(self._consts)
+
+        then_ops, _, then_assigned = self._flatten_statements(
+            node.body, consts_after_condition
+        )
+        else_ops, _, else_assigned = self._flatten_statements(
+            node.orelse, consts_after_condition
+        )
+
+        if else_ops:
+            self._ops.append(Op("JZ", condition, str(len(then_ops) + 1)))
+            self._ops.extend(then_ops)
+            self._ops.append(Op("JZ", "r0", str(len(else_ops))))
+            self._ops.extend(else_ops)
+        else:
+            self._ops.append(Op("JZ", condition, str(len(then_ops))))
+            self._ops.extend(then_ops)
+
+        assigned_in_branches = then_assigned | else_assigned
+        self._consts = {
+            name: value
+            for name, value in consts_after_condition.items()
+            if name not in assigned_in_branches
+        }
+        self._assigned_names.update(assigned_in_branches)
 
     def generic_visit(self, node):
         if isinstance(node, ast.stmt):

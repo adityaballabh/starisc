@@ -1,7 +1,14 @@
 import unittest
 from pathlib import Path
 
-from .backend import allocate_registers, compute_liveness, emit_ops, optimize_ops
+from .backend import (
+    allocate_registers,
+    compute_liveness,
+    emit_ops,
+    op_defs,
+    op_uses,
+    optimize_ops,
+)
 from .op import Op
 from .pipeline import compile_first_stage, compile_to_op
 
@@ -256,6 +263,114 @@ class TestAssert(unittest.TestCase):
             compile_first_stage("assert False")
 
 
+class TestIfLowering(unittest.TestCase):
+    def test_if_without_else(self):
+        self.assertEqual(
+            compile_first_stage("x = 5\nif x:\n    y = 1"),
+            [
+                Op("SET", "x", "5"),
+                Op("LT", "t0", "r0", "x"),
+                Op("JZ", "t0", "1"),
+                Op("SET", "y", "1"),
+            ],
+        )
+
+    def test_if_else(self):
+        self.assertEqual(
+            compile_first_stage("x = 3\nif x:\n    y = 1\nelse:\n    y = 2"),
+            [
+                Op("SET", "x", "3"),
+                Op("LT", "t0", "r0", "x"),
+                Op("JZ", "t0", "2"),
+                Op("SET", "y", "1"),
+                Op("JZ", "r0", "1"),
+                Op("SET", "y", "2"),
+            ],
+        )
+
+    def test_if_eq_condition(self):
+        self.assertEqual(
+            compile_first_stage("x = 4\ny = 4\nif x == y:\n    z = 9"),
+            [
+                Op("SET", "x", "4"),
+                Op("SET", "y", "4"),
+                Op("LT", "t0", "x", "y"),
+                Op("LT", "t1", "y", "x"),
+                Op("ADD", "t2", "t0", "t1"),
+                Op("SET", "t3", "1"),
+                Op("SUB", "t4", "t3", "t2"),
+                Op("JZ", "t4", "1"),
+                Op("SET", "z", "9"),
+            ],
+        )
+
+    def test_if_neq_condition(self):
+        self.assertEqual(
+            compile_first_stage("x = 4\ny = 5\nif x != y:\n    z = 9"),
+            [
+                Op("SET", "x", "4"),
+                Op("SET", "y", "5"),
+                Op("LT", "t0", "x", "y"),
+                Op("LT", "t1", "y", "x"),
+                Op("ADD", "t2", "t0", "t1"),
+                Op("JZ", "t2", "1"),
+                Op("SET", "z", "9"),
+            ],
+        )
+
+    def test_if_not_truthiness(self):
+        self.assertEqual(
+            compile_first_stage("x = 5\nif not x:\n    y = 1"),
+            [
+                Op("SET", "x", "5"),
+                Op("LT", "t0", "r0", "x"),
+                Op("SET", "t1", "1"),
+                Op("SUB", "t2", "t1", "t0"),
+                Op("JZ", "t2", "1"),
+                Op("SET", "y", "1"),
+            ],
+        )
+
+    def test_if_not_lt_condition(self):
+        self.assertEqual(
+            compile_first_stage("x = 2\ny = 3\nif not (x < y):\n    z = 1"),
+            [
+                Op("SET", "x", "2"),
+                Op("SET", "y", "3"),
+                Op("LT", "t0", "x", "y"),
+                Op("SET", "t1", "1"),
+                Op("SUB", "t2", "t1", "t0"),
+                Op("JZ", "t2", "1"),
+                Op("SET", "z", "1"),
+            ],
+        )
+
+    def test_nested_if_offsets(self):
+        self.assertEqual(
+            compile_first_stage(
+                "a = 1\nb = 2\nif a:\n    if b:\n        x = 3\n    else:\n        x = 4\nelse:\n    x = 5"
+            ),
+            [
+                Op("SET", "a", "1"),
+                Op("SET", "b", "2"),
+                Op("LT", "t0", "r0", "a"),
+                Op("JZ", "t0", "6"),
+                Op("LT", "t1", "r0", "b"),
+                Op("JZ", "t1", "2"),
+                Op("SET", "x", "3"),
+                Op("JZ", "r0", "1"),
+                Op("SET", "x", "4"),
+                Op("JZ", "r0", "1"),
+                Op("SET", "x", "5"),
+            ],
+        )
+
+    def test_branch_assignment_drops_constant_fact(self):
+        source = "e = 5\na = 7\nif a:\n    e = 3\nres = a ** e"
+        with self.assertRaises(TypeError):
+            compile_first_stage(source)
+
+
 class TestNested(unittest.TestCase):
     def test_nested_deep(self):
         self.assertEqual(
@@ -325,9 +440,21 @@ class TestUnsupported(unittest.TestCase):
         with self.assertRaises(NotImplementedError):
             compile_first_stage("b = 1\nfor i in range(3):\n   b = b * 3")
 
-    def test_if_raises(self):
+    def test_and_condition_raises(self):
         with self.assertRaises(NotImplementedError):
-            compile_first_stage("c = 12\nif c > 10:\n    c = c - 5")
+            compile_first_stage("x = 1\ny = 2\nif x and y:\n    z = 3")
+
+    def test_or_condition_raises(self):
+        with self.assertRaises(NotImplementedError):
+            compile_first_stage("x = 1\ny = 2\nif x or y:\n    z = 3")
+
+    def test_list_condition_raises(self):
+        with self.assertRaises(NotImplementedError):
+            compile_first_stage("if [1, 2]:\n    x = 3")
+
+    def test_call_condition_raises(self):
+        with self.assertRaises(NotImplementedError):
+            compile_first_stage("if foo():\n    x = 3")
 
     def test_import_raises(self):
         with self.assertRaises(NotImplementedError):
@@ -410,6 +537,33 @@ class TestBackendEmitter(unittest.TestCase):
 
     def test_lowers_register_copy_to_add_with_r0(self):
         self.assertEqual(emit_ops([Op("SET", "r2", "r5")]), "ADD r2 r5 r0")
+
+    def test_emits_jz(self):
+        self.assertEqual(emit_ops([Op("JZ", "r0", "2")]), "JZ r0 2")
+
+
+class TestBackendBranching(unittest.TestCase):
+    def test_jz_uses_condition_and_has_no_def(self):
+        op = Op("JZ", "cond", "3")
+        self.assertEqual(op_uses(op), {"cond"})
+        self.assertEqual(op_defs(op), set())
+
+    def test_liveness_respects_branch_successors(self):
+        ops = [
+            Op("SET", "cond", "1"),
+            Op("JZ", "cond", "1"),
+            Op("SET", "x", "2"),
+            Op("ASSERT_EQ", "x", "x"),
+        ]
+        _, live_out = compute_liveness(ops)
+        self.assertEqual(live_out[1], {"x"})
+
+    def test_optimizer_keeps_both_branch_results_live(self):
+        program = read("lt_assert.py")
+        compiled = compile_to_op(program)
+        self.assertIn("JZ", compiled)
+        self.assertEqual(compiled.count("SUB"), 2)
+        self.assertIn("ASSERT_EQ", compiled)
 
 
 class TestBackendPipeline(unittest.TestCase):

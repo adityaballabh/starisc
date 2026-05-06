@@ -1,4 +1,5 @@
 from collections import defaultdict
+import re
 
 from .op import Op
 
@@ -7,18 +8,24 @@ def is_immediate(value: str | None) -> bool:
     return value is None or value.lstrip("-").isdigit()
 
 
+def is_register(value: str | None) -> bool:
+    return value is not None and re.fullmatch(r"r([0-9]|1[0-5])", value) is not None
+
+
 def is_name(value: str | None) -> bool:
-    return value is not None and not is_immediate(value)
+    return value is not None and not is_immediate(value) and not is_register(value)
 
 
 def op_uses(op: Op) -> set[str]:
     if op.opcode == "ASSERT_EQ":
         return {value for value in (op.dst, op.src1) if is_name(value)}
+    if op.opcode == "JZ":
+        return {op.dst} if is_name(op.dst) else set()
     return {value for value in (op.src1, op.src2) if is_name(value)}
 
 
 def op_defs(op: Op) -> set[str]:
-    if op.opcode == "ASSERT_EQ":
+    if op.opcode in {"ASSERT_EQ", "JZ"}:
         return set()
     return {op.dst} if is_name(op.dst) else set()
 
@@ -26,13 +33,22 @@ def op_defs(op: Op) -> set[str]:
 def compute_liveness(ops: list[Op]) -> tuple[list[set[str]], list[set[str]]]:
     live_in = [set() for _ in ops]
     live_out = [set() for _ in ops]
-    next_live = set()
 
     for index in range(len(ops) - 1, -1, -1):
         op = ops[index]
-        live_out[index] = set(next_live)
+        successors = []
+        if index + 1 <= len(ops):
+            successors.append(index + 1)
+        if op.opcode == "JZ":
+            successors.append(index + 1 + int(op.src1))
+
+        next_live = set()
+        for successor in successors:
+            if successor < len(ops):
+                next_live |= live_in[successor]
+
+        live_out[index] = next_live
         live_in[index] = op_uses(op) | (live_out[index] - op_defs(op))
-        next_live = live_in[index]
 
     return live_in, live_out
 
@@ -175,6 +191,9 @@ def allocate_registers(ops: list[Op]) -> dict[str, str]:
 def apply_allocation(ops: list[Op], allocation: dict[str, str]) -> list[Op]:
     rewritten = []
     for op in ops:
+        if op.opcode == "JZ":
+            rewritten.append(Op("JZ", allocation.get(op.dst, op.dst), op.src1))
+            continue
         dst = allocation.get(op.dst, op.dst)
         src1 = allocation.get(op.src1, op.src1)
         src2 = allocation.get(op.src2, op.src2)
@@ -187,13 +206,16 @@ def emit_ops(ops: list[Op]) -> str:
 
     for op in ops:
         if op.opcode == "SET":
-            if is_name(op.src1):
+            if is_name(op.src1) or is_register(op.src1):
                 lines.append(f"ADD {op.dst} {op.src1} r0")
             else:
                 lines.append(f"SET {op.dst} {op.src1}")
             continue
         if op.opcode == "ASSERT_EQ":
             lines.append(f"ASSERT_EQ {op.dst} {op.src1}")
+            continue
+        if op.opcode == "JZ":
+            lines.append(f"JZ {op.dst} {op.src1}")
             continue
         lines.append(f"{op.opcode} {op.dst} {op.src1} {op.src2}")
     return "\n".join(lines)
