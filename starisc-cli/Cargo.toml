@@ -1,0 +1,13 @@
+[package]
+name = "starisc-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "starisc"
+path = "src/main.rs"
+
+[dependencies]
+vm = { path = "../vm" }
+prover = { path = "../prover" }
+clap = { version = "4", features = ["derive"] }

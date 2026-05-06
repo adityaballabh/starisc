@@ -1,4 +1,7 @@
-use prover::prover::{prove, prove_with_inputs, verify, verify_with_inputs};
+use prover::prover::{
+    prove, prove_with_claim, prove_with_inputs, verify, verify_with_claim, verify_with_inputs,
+    Claim,
+};
 use test_utils::{assert_proof_accepted, assert_proof_rejected, get_op_path};
 use vm::{execute, parse_file, parse_str, Instruction, Trace};
 
@@ -402,6 +405,93 @@ mod test_tamper_trace {
         let mut trace = exec_trace(&prog);
         trace[2].registers[11] = 10;
         assert_tamper_rejection(&prog, &trace);
+    }
+}
+
+mod test_claim {
+    use super::*;
+
+    #[test]
+    fn correct_claim_verifies() {
+        let prog = parse_program(
+            "SET r1 10
+             SET r2 20
+             ADD r3 r1 r2",
+        );
+        let claim = Claim {
+            register: 3,
+            expected: 30,
+        };
+        let proof = prove_with_claim(&prog, &[], &[], &claim).unwrap();
+        assert!(verify_with_claim(&prog, proof, &[], &claim).is_ok());
+    }
+
+    #[test]
+    fn wrong_claim_rejects() {
+        let prog = parse_program(
+            "SET r1 10
+             SET r2 20
+             ADD r3 r1 r2",
+        );
+        let claim = Claim {
+            register: 3,
+            expected: 30,
+        };
+        let proof = prove_with_claim(&prog, &[], &[], &claim).unwrap();
+        let bad_claim = Claim {
+            register: 3,
+            expected: 99,
+        };
+        assert!(verify_with_claim(&prog, proof, &[], &bad_claim).is_err());
+    }
+
+    #[test]
+    fn claim_on_r15_uses_r14_scratch() {
+        let prog = parse_program(
+            "SET r15 77
+             SET r1 77
+             ADD r15 r15 r1",
+        );
+        let claim = Claim {
+            register: 15,
+            expected: 154,
+        };
+        let proof = prove_with_claim(&prog, &[], &[], &claim).unwrap();
+        assert!(verify_with_claim(&prog, proof, &[], &claim).is_ok());
+    }
+
+    #[test]
+    fn private_input_proves_public_claim() {
+        let prog = parse_program(
+            "READ_PRIV r1 0
+             READ_PRIV r2 1
+             ADD r3 r1 r2",
+        );
+        let claim = Claim {
+            register: 3,
+            expected: 100,
+        };
+        let proof = prove_with_claim(&prog, &[37, 63], &[], &claim).unwrap();
+        assert!(verify_with_claim(&prog, proof, &[], &claim).is_ok());
+    }
+
+    #[test]
+    fn private_input_wrong_claim_rejects() {
+        let prog = parse_program(
+            "READ_PRIV r1 0
+             READ_PRIV r2 1
+             ADD r3 r1 r2",
+        );
+        let claim = Claim {
+            register: 3,
+            expected: 100,
+        };
+        let proof = prove_with_claim(&prog, &[37, 63], &[], &claim).unwrap();
+        let bad_claim = Claim {
+            register: 3,
+            expected: 101,
+        };
+        assert!(verify_with_claim(&prog, proof, &[], &bad_claim).is_err());
     }
 }
 

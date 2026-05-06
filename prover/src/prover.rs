@@ -219,6 +219,46 @@ pub fn verify_with_inputs(
     >(proof, pub_inputs, &min_proof_bits)
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct Claim {
+    pub register: u8,
+    pub expected: u64,
+}
+
+pub fn extend_with_claim(prog: &[Instruction], claim: &Claim) -> Vec<Instruction> {
+    let scratch = if claim.register == 15 { 14 } else { 15 };
+    let mut extended = prog.to_vec();
+    extended.push(Instruction::Set {
+        dest: scratch,
+        val: claim.expected,
+    });
+    extended.push(Instruction::AssertEq {
+        r1: claim.register,
+        r2: scratch,
+    });
+    extended
+}
+
+pub fn prove_with_claim(
+    prog: &[Instruction],
+    private_inputs: &[u64],
+    public_inputs: &[u64],
+    claim: &Claim,
+) -> Result<Proof, ProverError> {
+    let extended = extend_with_claim(prog, claim);
+    prove_with_inputs(&extended, private_inputs, public_inputs)
+}
+
+pub fn verify_with_claim(
+    prog: &[Instruction],
+    proof: Proof,
+    public_inputs: &[u64],
+    claim: &Claim,
+) -> Result<(), VerifierError> {
+    let extended = extend_with_claim(prog, claim);
+    verify_with_inputs(&extended, proof, public_inputs)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
