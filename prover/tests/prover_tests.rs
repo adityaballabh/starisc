@@ -109,6 +109,27 @@ fn prove_verify_assert_eq() {
 }
 
 #[test]
+fn prove_verify_jz_taken() {
+    let prog = load_program("branch_taken");
+    assert_prove_verify(&prog);
+}
+
+#[test]
+fn prove_verify_jz_not_taken() {
+    let prog = load_program("branch_not_taken");
+    assert_prove_verify(&prog);
+}
+
+#[test]
+fn prove_verify_jz_to_end() {
+    assert_program_proves(
+        "JZ r0 2
+         SET r7 3
+         SET r9 2",
+    );
+}
+
+#[test]
 fn prove_verify_all_ops() {
     let prog = load_program("all_ops");
     assert_prove_verify(&prog);
@@ -285,6 +306,19 @@ mod test_tamper_trace {
         );
         let mut trace = exec_trace(&prog);
         trace[2].registers[2] = 5;
+        assert_tamper_rejection(&prog, &trace);
+    }
+
+    #[test]
+    fn rejects_tampered_jz_skipped_row() {
+        let prog = parse_program(
+            "SET r6 0
+             JZ r6 1
+             SET r11 7
+             SET r14 15",
+        );
+        let mut trace = exec_trace(&prog);
+        trace[2].registers[11] = 10;
         assert_tamper_rejection(&prog, &trace);
     }
 }
