@@ -1,6 +1,6 @@
 use crate::public_inputs::{
     PublicInputs, P_CONST, P_IS_ADD, P_IS_ASSERT_EQ, P_IS_JZ, P_IS_LT, P_IS_MOD, P_IS_MUL,
-    P_IS_SET, P_IS_SUB, P_OFFSET, P_RES_BASE, P_SRC1_BASE, P_SRC2_BASE,
+    P_IS_NOP, P_IS_READ_PUB, P_IS_SET, P_IS_SUB, P_OFFSET, P_RES_BASE, P_SRC1_BASE, P_SRC2_BASE,
 };
 use crate::{
     Felt, ACTIVE_BOOL_CON, ACTIVE_COL, ASSERT_EQ_CON, COND_BOOL_CON, COND_MATCH_CON,
@@ -28,17 +28,7 @@ impl Air for VmAir {
 
     fn new(trace_info: TraceInfo, pub_inputs: PublicInputs, options: ProofOptions) -> Self {
         let trace_len = pub_inputs.trace_len;
-        let has_result_constraint = pub_inputs.prog.iter().any(|instr| {
-            matches!(
-                instr,
-                vm::Instruction::Set { .. }
-                    | vm::Instruction::Add { .. }
-                    | vm::Instruction::Sub { .. }
-                    | vm::Instruction::Mul { .. }
-                    | vm::Instruction::AssertEq { .. }
-                    | vm::Instruction::Jz { .. }
-            )
-        });
+        let has_result_constraint = pub_inputs.has_result_constraint();
 
         // new(1) is the default constraint. use cyclic for periodic/instruction-specific constraints
         // new(2) if the entire column has a degree 2 constraint
@@ -81,12 +71,12 @@ impl Air for VmAir {
         };
         if pub_inputs.has_jz {
             degrees[COND_BOOL_CON] = if has_fallthrough_branch {
-                cyclic(2)
+                cyclic(if has_taken_branch { 3 } else { 2 })
             } else {
                 TransitionConstraintDegree::new(1)
             };
             if has_taken_branch || has_fallthrough_branch {
-                degrees[SKIP_COUNTDOWN_CON] = cyclic(2);
+                degrees[SKIP_COUNTDOWN_CON] = cyclic(if has_taken_branch { 3 } else { 2 });
                 if has_taken_branch {
                     degrees[SKIP_ACTIVE_ZERO_CON] = TransitionConstraintDegree::new(2);
                     degrees[SKIP_COUNTDOWN_INV_CON] = cyclic(2);
@@ -104,7 +94,7 @@ impl Air for VmAir {
         if pub_inputs.has_lt {
             degrees[LT_RES_BOOL_CON] = cyclic(if pub_inputs.has_taken_jz { 3 } else { 2 });
             degrees[RANGE_RECON_CON] = cyclic(if pub_inputs.has_taken_jz { 3 } else { 2 });
-        } else if pub_inputs.has_mod {
+        } else if pub_inputs.has_mod || has_result_constraint {
             degrees[RANGE_RECON_CON] = cyclic(if pub_inputs.has_taken_jz { 2 } else { 1 });
         }
 
@@ -144,11 +134,21 @@ impl Air for VmAir {
         for i in 0..NUM_RANGE_BITS {
             wrap_bit_sum += E::from(Felt::from(1u64 << i)) * next_row[WRAP_BITS_BASE + i];
         }
+        // This vanishes on the base trace domain because `P_IS_NOP` is boolean there.
+        // On the LDE domain it keeps Winterfell's exact degree checks tied to public
+        // program shape instead of private branch/source values.
+        let degree_anchor = curr_pub_in[P_IS_NOP] * (curr_pub_in[P_IS_NOP] - E::ONE);
+        let degree_31 = degree_anchor;
+        let degree_62 = degree_31 * next_row[RANGE_BITS_BASE];
+        let degree_93 = degree_62 * next_row[WRAP_BITS_BASE];
 
         // all reg except dest should not change. dest should be next_res
         for j in 0..NUM_REGISTERS {
             result[j] = (next_row[j] - curr_row[j])
                 - active * curr_pub_in[P_RES_BASE + j] * (next_res - curr_row[j]);
+            if self.public_inputs.has_taken_jz && self.public_inputs.dest_mask[j] {
+                result[j] += degree_62;
+            }
         }
 
         let is_add = curr_pub_in[P_IS_ADD];
@@ -157,14 +157,25 @@ impl Air for VmAir {
         let is_lt = curr_pub_in[P_IS_LT];
         let is_mod = curr_pub_in[P_IS_MOD];
         let is_jz = curr_pub_in[P_IS_JZ];
+        let is_assert_eq = curr_pub_in[P_IS_ASSERT_EQ];
+        let is_range_checked_res =
+            curr_pub_in[P_IS_SET] + is_add + is_sub + is_mul + is_assert_eq + is_jz;
 
         result[RES_COL] = active
             * (curr_pub_in[P_IS_SET] * (next_res - curr_pub_in[P_CONST])
+                + curr_pub_in[P_IS_READ_PUB] * (next_res - curr_pub_in[P_CONST])
                 + is_add * (next_res + wrap_bit_sum * two64 - next_src1 - next_src2)
                 + is_sub * (next_res - next_src1 + next_src2 - wrap_bit_sum * two64)
                 + is_mul * (next_res + wrap_bit_sum * two64 - next_src1 * next_src2)
-                + curr_pub_in[P_IS_ASSERT_EQ] * (next_res - E::ONE)
+                + is_assert_eq * (next_res - E::ONE)
                 + is_jz * (next_res - E::ONE));
+        if self.public_inputs.has_taken_jz {
+            if self.public_inputs.has_mul {
+                result[RES_COL] += degree_93;
+            } else if self.public_inputs.has_result_constraint() {
+                result[RES_COL] += degree_62;
+            }
+        }
 
         // next[src1/2] should be the dot product of their reg selectors and curr regs
         let (mut exp_s1, mut exp_s2) = (E::ZERO, E::ZERO);
@@ -174,12 +185,24 @@ impl Air for VmAir {
         }
         result[SRC1_COL] = next_src1 - exp_s1;
         result[SRC2_COL] = next_src2 - exp_s2;
+        if self.public_inputs.has_nonzero_src1 {
+            result[SRC1_COL] += degree_31;
+        }
+        if self.public_inputs.has_nonzero_src2 {
+            result[SRC2_COL] += degree_31;
+        }
         result[ASSERT_EQ_CON] =
-            active * curr_pub_in[P_IS_ASSERT_EQ] * (next_src1 - next_src2 - (next_res - E::ONE));
+            active * is_assert_eq * (next_src1 - next_src2 - (next_res - E::ONE));
+        if self.public_inputs.has_taken_jz && self.public_inputs.has_assert_eq {
+            result[ASSERT_EQ_CON] += degree_62;
+        }
         if self.public_inputs.has_mod {
             result[QUOT_COL] = (E::ONE - is_mod) * (next_quot - E::ONE);
             result[MOD_REL_CON] =
                 active * is_mod * (next_src1 - (next_src2 * (next_quot - E::ONE) + next_res));
+            if self.public_inputs.has_taken_jz {
+                result[MOD_REL_CON] += degree_93;
+            }
         } else {
             result[QUOT_COL] = next_quot - E::ONE;
             result[MOD_REL_CON] = E::ZERO;
@@ -204,16 +227,26 @@ impl Air for VmAir {
         } else {
             active - E::ONE
         };
+        if has_taken_branch {
+            result[ACTIVE_BOOL_CON] += degree_31;
+        }
         result[COND_BOOL_CON] = if has_fallthrough_branch {
             active * is_jz * cond * (cond - E::ONE)
         } else {
             active * is_jz * cond
         };
+        if has_taken_branch && has_fallthrough_branch {
+            result[COND_BOOL_CON] += degree_93;
+        } else if has_fallthrough_branch {
+            result[COND_BOOL_CON] += degree_62;
+        }
         result[COND_MATCH_CON] = E::ZERO;
         if has_taken_branch {
             result[SKIP_ACTIVE_ZERO_CON] = active * skip_countdown;
             result[SKIP_COUNTDOWN_INV_CON] =
                 (E::ONE - active) * (skip_countdown * skip_countdown_inv - E::ONE);
+            result[SKIP_ACTIVE_ZERO_CON] += degree_31;
+            result[SKIP_COUNTDOWN_INV_CON] += degree_62;
         } else {
             result[SKIP_ACTIVE_ZERO_CON] = E::ZERO;
             result[SKIP_COUNTDOWN_INV_CON] = E::ZERO;
@@ -221,6 +254,11 @@ impl Air for VmAir {
         let taken = active * is_jz * (E::ONE - cond);
         result[SKIP_COUNTDOWN_CON] = next_row[SKIP_COUNTDOWN_COL]
             - (taken * curr_pub_in[P_OFFSET] + (E::ONE - active) * (skip_countdown - E::ONE));
+        if has_taken_branch {
+            result[SKIP_COUNTDOWN_CON] += degree_93;
+        } else if has_fallthrough_branch {
+            result[SKIP_COUNTDOWN_CON] += degree_62;
+        }
 
         // combined reconstruction. lt rows decompose comparison diff, mod rows decompose src2-res-1,
         // and all other rows decompose res.
@@ -234,7 +272,15 @@ impl Air for VmAir {
         result[RANGE_RECON_CON] = active
             * (is_lt * (exp_diff - bit_sum)
                 + is_mod * (mod_diff - bit_sum)
-                + (E::ONE - is_lt - is_mod) * (next_res - bit_sum));
+                + is_range_checked_res * (next_res - bit_sum));
+        if self.public_inputs.has_taken_jz {
+            if self.public_inputs.has_lt {
+                result[LT_RES_BOOL_CON] += degree_93;
+                result[RANGE_RECON_CON] += degree_93;
+            } else if self.public_inputs.has_mod || self.public_inputs.has_result_constraint() {
+                result[RANGE_RECON_CON] += degree_62;
+            }
+        }
     }
 
     // all trace cols should be 0 for row 0

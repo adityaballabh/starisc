@@ -1,9 +1,6 @@
 use crate::air::VmAir;
 use crate::public_inputs::{PublicInputFlags, PublicInputs};
-use crate::trace_builder::{
-    build_trace, get_bits_used, get_nonzero_sources, get_trace_len, get_wrap_bits_used,
-    has_not_taken_jz, has_taken_jz,
-};
+use crate::trace_builder::{build_trace, get_trace_len};
 use crate::Felt;
 use vm::{Instruction, Trace};
 use winterfell::crypto::hashers::Blake3_256;
@@ -35,6 +32,7 @@ pub(crate) struct VmProver {
 impl VmProver {
     pub fn new(
         prog: &[Instruction],
+        public_inputs: &[u64],
         bits_used: u64,
         wrap_bits_used: u64,
         flags: PublicInputFlags,
@@ -48,8 +46,14 @@ impl VmProver {
             FRI_FOLDING_FACTOR,
             FRI_REMAINDER_MAX_DEGREE,
         );
-        let pub_inputs =
-            PublicInputs::new(prog.to_vec(), trace_len, bits_used, wrap_bits_used, flags);
+        let pub_inputs = PublicInputs::new(
+            prog.to_vec(),
+            public_inputs.to_vec(),
+            trace_len,
+            bits_used,
+            wrap_bits_used,
+            flags,
+        );
         Self {
             options,
             pub_inputs,
@@ -118,38 +122,92 @@ impl Prover for VmProver {
 }
 
 pub fn prove(prog: &[Instruction], vm_trace: &Trace) -> Result<Proof, ProverError> {
-    let (has_nonzero_src1, has_nonzero_src2) = get_nonzero_sources(prog, vm_trace);
-    let flags = PublicInputFlags {
-        has_nonzero_src1,
-        has_nonzero_src2,
-        has_taken_jz: has_taken_jz(prog, vm_trace),
-        has_not_taken_jz: has_not_taken_jz(prog, vm_trace),
-    };
+    let (bits_used, wrap_bits_used) = conservative_bits(prog);
     let prover = VmProver::new(
         prog,
-        get_bits_used(prog, vm_trace),
-        get_wrap_bits_used(prog, vm_trace),
-        flags,
+        &[],
+        bits_used,
+        wrap_bits_used,
+        conservative_flags(prog),
     );
     let trace = build_trace(prog, vm_trace);
     prover.prove(trace)
 }
 
+fn conservative_flags(prog: &[Instruction]) -> PublicInputFlags {
+    let uses_src1 = prog.iter().any(|instr| {
+        matches!(
+            instr,
+            Instruction::Add { .. }
+                | Instruction::Sub { .. }
+                | Instruction::Mul { .. }
+                | Instruction::AssertEq { .. }
+                | Instruction::Lt { .. }
+                | Instruction::Mod { .. }
+                | Instruction::Jz { .. }
+        )
+    });
+    let uses_src2 = prog.iter().any(|instr| {
+        matches!(
+            instr,
+            Instruction::Add { .. }
+                | Instruction::Sub { .. }
+                | Instruction::Mul { .. }
+                | Instruction::AssertEq { .. }
+                | Instruction::Lt { .. }
+                | Instruction::Mod { .. }
+        )
+    });
+    let has_jz = prog
+        .iter()
+        .any(|instr| matches!(instr, Instruction::Jz { .. }));
+
+    PublicInputFlags {
+        has_nonzero_src1: uses_src1,
+        has_nonzero_src2: uses_src2,
+        has_taken_jz: has_jz,
+        has_not_taken_jz: has_jz,
+    }
+}
+
+fn conservative_bits(prog: &[Instruction]) -> (u64, u64) {
+    let _ = prog;
+    (u64::MAX, u64::MAX)
+}
+
+pub fn prove_with_inputs(
+    prog: &[Instruction],
+    private_inputs: &[u64],
+    public_inputs: &[u64],
+) -> Result<Proof, ProverError> {
+    let vm_trace = vm::execute_with_inputs(prog, private_inputs, public_inputs)
+        .expect(EXEC_ERR)
+        .0;
+    let (bits_used, wrap_bits_used) = conservative_bits(prog);
+    let flags = conservative_flags(prog);
+    let prover = VmProver::new(prog, public_inputs, bits_used, wrap_bits_used, flags);
+    let trace = build_trace(prog, &vm_trace);
+    prover.prove(trace)
+}
+
 pub fn verify(prog: &[Instruction], proof: Proof) -> Result<(), VerifierError> {
+    verify_with_inputs(prog, proof, &[])
+}
+
+pub fn verify_with_inputs(
+    prog: &[Instruction],
+    proof: Proof,
+    public_inputs: &[u64],
+) -> Result<(), VerifierError> {
     let trace_len = get_trace_len(prog);
-    let vm_trace = &vm::execute(prog).expect(EXEC_ERR).0;
-    let (has_nonzero_src1, has_nonzero_src2) = get_nonzero_sources(prog, vm_trace);
-    let flags = PublicInputFlags {
-        has_nonzero_src1,
-        has_nonzero_src2,
-        has_taken_jz: has_taken_jz(prog, vm_trace),
-        has_not_taken_jz: has_not_taken_jz(prog, vm_trace),
-    };
+    let (bits_used, wrap_bits_used) = conservative_bits(prog);
+    let flags = conservative_flags(prog);
     let pub_inputs = PublicInputs::new(
         prog.to_vec(),
+        public_inputs.to_vec(),
         trace_len,
-        get_bits_used(prog, vm_trace),
-        get_wrap_bits_used(prog, vm_trace),
+        bits_used,
+        wrap_bits_used,
         flags,
     );
     let min_proof_bits = AcceptableOptions::MinConjecturedSecurity(MIN_VERIFY_SECURITY_BITS);
@@ -164,7 +222,7 @@ pub fn verify(prog: &[Instruction], proof: Proof) -> Result<(), VerifierError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::trace_builder::{build_trace, get_bits_used};
+    use crate::trace_builder::build_trace;
     use crate::RES_COL;
     use test_utils::{assert_proof_rejected, get_op_path};
     use vm::parse_file;
@@ -177,19 +235,14 @@ mod tests {
         let (vm_trace, _) = vm::execute(&prog).unwrap();
         let mut trace = build_trace(&prog, &vm_trace);
         trace.set(RES_COL, 3, Felt::from(u64::MAX) + Felt::ONE);
-        let (has_nonzero_src1, has_nonzero_src2) = get_nonzero_sources(&prog, &vm_trace);
-        let flags = PublicInputFlags {
-            has_nonzero_src1,
-            has_nonzero_src2,
-            has_taken_jz: has_taken_jz(&prog, &vm_trace),
-            has_not_taken_jz: has_not_taken_jz(&prog, &vm_trace),
-        };
+        let (bits_used, wrap_bits_used) = conservative_bits(&prog);
 
         let prover = VmProver::new(
             &prog,
-            get_bits_used(&prog, &vm_trace),
-            get_wrap_bits_used(&prog, &vm_trace),
-            flags,
+            &[],
+            bits_used,
+            wrap_bits_used,
+            conservative_flags(&prog),
         );
         let (prog_clone, trace_clone) = (prog.clone(), trace);
         assert_proof_rejected(

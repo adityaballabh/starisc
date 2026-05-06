@@ -1,4 +1,4 @@
-use prover::prover::{prove, verify};
+use prover::prover::{prove, prove_with_inputs, verify, verify_with_inputs};
 use test_utils::{assert_proof_accepted, assert_proof_rejected, get_op_path};
 use vm::{execute, parse_file, parse_str, Instruction, Trace};
 
@@ -139,6 +139,88 @@ fn prove_verify_all_ops() {
 fn prove_verify_limited_ops() {
     let prog = load_program("limited_ops");
     assert_prove_verify(&prog);
+}
+
+#[test]
+fn prove_verify_public_input() {
+    let prog = parse_program(
+        "READ_PUB r6 0
+         SET r13 73
+         ASSERT_EQ r6 r13",
+    );
+    let proof = prove_with_inputs(&prog, &[], &[73]).unwrap();
+
+    assert!(verify_with_inputs(&prog, proof, &[73]).is_ok());
+}
+
+#[test]
+fn reject_wrong_public_input() {
+    let prog = parse_program(
+        "READ_PUB r11 0
+         SET r4 58
+         ASSERT_EQ r11 r4",
+    );
+    let proof = prove_with_inputs(&prog, &[], &[58]).unwrap();
+
+    assert!(verify_with_inputs(&prog, proof, &[57]).is_err());
+}
+
+#[test]
+fn public_input_can_feed_arithmetic() {
+    let prog = parse_program(
+        "READ_PUB r9 0
+         SET r12 13
+         ADD r5 r9 r12
+         SET r14 94
+         ASSERT_EQ r5 r14",
+    );
+    let proof = prove_with_inputs(&prog, &[], &[81]).unwrap();
+
+    assert!(verify_with_inputs(&prog, proof, &[81]).is_ok());
+}
+
+#[test]
+fn private_input_satisfies_assertion() {
+    let prog = parse_program(
+        "READ_PRIV r7 0
+         SET r10 64
+         ASSERT_EQ r7 r10",
+    );
+    let proof = prove_with_inputs(&prog, &[64], &[]).unwrap();
+
+    assert!(verify_with_inputs(&prog, proof, &[]).is_ok());
+    assert!(!prog
+        .iter()
+        .any(|instr| { matches!(instr, Instruction::Set { dest: 7, val: 64 }) }));
+}
+
+#[test]
+fn private_input_can_feed_arithmetic() {
+    let prog = parse_program(
+        "READ_PRIV r8 0
+         SET r12 19
+         ADD r6 r8 r12
+         SET r15 83
+         ASSERT_EQ r6 r15",
+    );
+    let proof = prove_with_inputs(&prog, &[64], &[]).unwrap();
+
+    assert!(verify_with_inputs(&prog, proof, &[]).is_ok());
+}
+
+#[test]
+fn private_input_can_control_branch() {
+    let prog = parse_program(
+        "READ_PRIV r3 0
+         JZ r3 1
+         SET r9 17",
+    );
+
+    let taken_proof = prove_with_inputs(&prog, &[0], &[]).unwrap();
+    let fallthrough_proof = prove_with_inputs(&prog, &[1], &[]).unwrap();
+
+    assert!(verify_with_inputs(&prog, taken_proof, &[]).is_ok());
+    assert!(verify_with_inputs(&prog, fallthrough_proof, &[]).is_ok());
 }
 
 #[test]
