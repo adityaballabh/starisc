@@ -47,6 +47,13 @@ fn parse_val(token: &str, line: usize) -> Result<u64, ParseError> {
     })
 }
 
+fn parse_input_index(token: &str, line: usize) -> Result<usize, ParseError> {
+    token.parse().map_err(|_| ParseError {
+        line,
+        message: format!("expected nonnegative input index, got {:?}", token),
+    })
+}
+
 fn parse_offset(token: &str, line: usize) -> Result<usize, ParseError> {
     let offset: usize = token.parse().map_err(|_| ParseError {
         line,
@@ -100,6 +107,18 @@ pub fn parse_str(input: &str) -> Result<Vec<Instruction>, ParseError> {
                 let dest = parse_dest_register(tokens[1], line_num)?;
                 let val = parse_val(tokens[2], line_num)?;
                 Instruction::Set { dest, val }
+            }
+            "READ_PRIV" => {
+                expect_argc("READ_PRIV", 2, argc, line_num)?;
+                let dest = parse_dest_register(tokens[1], line_num)?;
+                let index = parse_input_index(tokens[2], line_num)?;
+                Instruction::ReadPriv { dest, index }
+            }
+            "READ_PUB" => {
+                expect_argc("READ_PUB", 2, argc, line_num)?;
+                let dest = parse_dest_register(tokens[1], line_num)?;
+                let index = parse_input_index(tokens[2], line_num)?;
+                Instruction::ReadPub { dest, index }
             }
             "ASSERT_EQ" => {
                 expect_argc("ASSERT_EQ", 2, argc, line_num)?;

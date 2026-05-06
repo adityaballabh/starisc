@@ -9,6 +9,24 @@ fn parse_set() {
 }
 
 #[test]
+fn parse_read_priv() {
+    let instr = parse_str("READ_PRIV r10 15").unwrap();
+    assert_eq!(
+        instr,
+        vec![Instruction::ReadPriv {
+            dest: 10,
+            index: 15
+        }]
+    );
+}
+
+#[test]
+fn parse_read_pub() {
+    let instr = parse_str("READ_PUB r11 2").unwrap();
+    assert_eq!(instr, vec![Instruction::ReadPub { dest: 11, index: 2 }]);
+}
+
+#[test]
 fn parse_add() {
     let instr = parse_str("ADD r8 r6 r7").unwrap();
     assert_eq!(
@@ -131,6 +149,34 @@ fn rejects_r0_write() {
     let err = parse_str("SET r0 4").unwrap_err();
     assert_eq!(err.line, 1);
     assert!(err.message.contains("r0"));
+}
+
+#[test]
+fn rejects_read_priv_r0_write() {
+    let err = parse_str("READ_PRIV r0 4").unwrap_err();
+    assert_eq!(err.line, 1);
+    assert!(err.message.contains("r0"));
+}
+
+#[test]
+fn rejects_read_pub_r0_write() {
+    let err = parse_str("READ_PUB r0 4").unwrap_err();
+    assert_eq!(err.line, 1);
+    assert!(err.message.contains("r0"));
+}
+
+#[test]
+fn rejects_read_priv_negative_index() {
+    let err = parse_str("READ_PRIV r1 -4").unwrap_err();
+    assert_eq!(err.line, 1);
+    assert!(err.message.contains("input index"));
+}
+
+#[test]
+fn rejects_read_pub_non_int_index() {
+    let err = parse_str("READ_PUB r1 nope").unwrap_err();
+    assert_eq!(err.line, 1);
+    assert!(err.message.contains("nope"));
 }
 
 #[test]

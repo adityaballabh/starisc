@@ -16,6 +16,14 @@ impl fmt::Display for ExecError {
 }
 
 pub fn execute(prog: &[Instruction]) -> Result<(Trace, [u64; 16]), Box<ExecError>> {
+    execute_with_inputs(prog, &[], &[])
+}
+
+pub fn execute_with_inputs(
+    prog: &[Instruction],
+    private_inputs: &[u64],
+    public_inputs: &[u64],
+) -> Result<(Trace, [u64; 16]), Box<ExecError>> {
     let mut registers: [u64; 16] = [0; 16];
     let mut trace = Vec::with_capacity(prog.len());
     let mut pc = 0;
@@ -25,6 +33,24 @@ pub fn execute(prog: &[Instruction]) -> Result<(Trace, [u64; 16]), Box<ExecError
         match instr {
             Instruction::Set { dest, val } => {
                 registers[*dest as usize] = *val;
+            }
+            Instruction::ReadPriv { dest, index } => {
+                registers[*dest as usize] = *private_inputs.get(*index).ok_or_else(|| {
+                    Box::new(ExecError {
+                        pc,
+                        registers,
+                        message: format!("missing private input at index {}", index),
+                    })
+                })?;
+            }
+            Instruction::ReadPub { dest, index } => {
+                registers[*dest as usize] = *public_inputs.get(*index).ok_or_else(|| {
+                    Box::new(ExecError {
+                        pc,
+                        registers,
+                        message: format!("missing public input at index {}", index),
+                    })
+                })?;
             }
             Instruction::AssertEq { r1, r2 } => {
                 let v1 = registers[*r1 as usize];

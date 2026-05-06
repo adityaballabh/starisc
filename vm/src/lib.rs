@@ -4,6 +4,6 @@ pub mod parser;
 pub mod trace;
 
 pub use instruction::Instruction;
-pub use interpreter::{execute, ExecError};
+pub use interpreter::{execute, execute_with_inputs, ExecError};
 pub use parser::{parse_file, parse_str, ParseError};
 pub use trace::{write_trace_table, Trace, TraceRow};

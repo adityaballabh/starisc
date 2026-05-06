@@ -1,5 +1,5 @@
 use test_utils::get_op_path;
-use vm::{execute, parse_file, parse_str};
+use vm::{execute, execute_with_inputs, parse_file, parse_str};
 
 #[test]
 fn exec_set() {
@@ -8,6 +8,50 @@ fn exec_set() {
     assert_eq!(regs[8], 15);
     assert_eq!(trace.len(), 1);
     assert_eq!(trace[0].registers[8], 15);
+}
+
+#[test]
+fn exec_read_inputs() {
+    let prog = parse_str("READ_PRIV r8 1\nREAD_PUB r9 0\nADD r10 r8 r9").unwrap();
+    let (trace, regs) = execute_with_inputs(&prog, &[11, 15], &[27]).unwrap();
+
+    assert_eq!(regs[8], 15);
+    assert_eq!(regs[9], 27);
+    assert_eq!(regs[10], 42);
+    assert_eq!(trace.len(), 3);
+    assert_eq!(trace[0].registers[8], 15);
+    assert_eq!(trace[1].registers[9], 27);
+}
+
+#[test]
+fn exec_read_priv_missing_input_err() {
+    let prog = parse_str("SET r3 9\nREAD_PRIV r5 1").unwrap();
+    let err = execute_with_inputs(&prog, &[8], &[]).unwrap_err();
+
+    assert_eq!(err.pc, 1);
+    assert!(err.message.contains("missing private input"));
+    assert!(err.message.contains("1"));
+    assert_eq!(err.registers[3], 9);
+}
+
+#[test]
+fn exec_read_pub_missing_input_err() {
+    let prog = parse_str("SET r4 12\nREAD_PUB r5 0").unwrap();
+    let err = execute_with_inputs(&prog, &[], &[]).unwrap_err();
+
+    assert_eq!(err.pc, 1);
+    assert!(err.message.contains("missing public input"));
+    assert!(err.message.contains("0"));
+    assert_eq!(err.registers[4], 12);
+}
+
+#[test]
+fn execute_wrapper_uses_empty_inputs() {
+    let prog = parse_str("READ_PRIV r5 0").unwrap();
+    let err = execute(&prog).unwrap_err();
+
+    assert_eq!(err.pc, 0);
+    assert!(err.message.contains("missing private input"));
 }
 
 #[test]
