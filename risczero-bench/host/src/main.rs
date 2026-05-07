@@ -1,4 +1,4 @@
-use methods::{FIB_ELF, FIB_ID, RSA_32_ELF, RSA_32_ID};
+use methods::{FIB_ELF, FIB_ID, RSA_DEC_ELF, RSA_DEC_ID, RSA_ENC_ELF, RSA_ENC_ID};
 use risc0_zkvm::{default_prover, ExecutorEnv};
 use std::fs::{self, OpenOptions};
 use std::io::Write as IoWrite;
@@ -7,7 +7,12 @@ use std::time::Instant;
 
 const RUNS: usize = 5;
 
-fn bench_once<T: serde::Serialize>(input: &T, elf: &[u8], id: [u32; 8]) -> (f64, f64, usize) {
+fn bench_once<T: serde::Serialize>(
+    input: &T,
+    elf: &[u8],
+    id: [u32; 8],
+    expected: u64,
+) -> (f64, f64, usize) {
     let env = ExecutorEnv::builder()
         .write(input)
         .unwrap()
@@ -27,16 +32,26 @@ fn bench_once<T: serde::Serialize>(input: &T, elf: &[u8], id: [u32; 8]) -> (f64,
     receipt.verify(id).unwrap();
     let verify_ms = t_verify.elapsed().as_secs_f64() * 1000.0;
 
+    let actual: u64 = receipt.journal.decode().unwrap();
+    assert_eq!(actual, expected, "journal output mismatch for benchmark");
+
     (proof_ms, verify_ms, proof_kb)
 }
 
-fn bench<T: serde::Serialize>(name: &str, input: &T, elf: &[u8], id: [u32; 8], res_dir: &Path) {
+fn bench<T: serde::Serialize>(
+    name: &str,
+    input: &T,
+    elf: &[u8],
+    id: [u32; 8],
+    expected: u64,
+    res_dir: &Path,
+) {
     let out_path = res_dir.join(format!("{}.txt", name));
     fs::write(&out_path, "").unwrap();
 
     let mut totals = (0.0_f64, 0.0_f64, 0_usize);
     for run in 1..=RUNS {
-        let (prove_ms, verify_ms, proof_kb) = bench_once(input, elf, id);
+        let (prove_ms, verify_ms, proof_kb) = bench_once(input, elf, id, expected);
         totals.0 += prove_ms;
         totals.1 += verify_ms;
         totals.2 += proof_kb;
@@ -63,14 +78,41 @@ fn bench<T: serde::Serialize>(name: &str, input: &T, elf: &[u8], id: [u32; 8], r
 }
 
 fn bench_fib(res_dir: &Path) {
-    let inputs: [u32; 2] = [8, 16];
-    for n in inputs {
-        bench(&format!("fib_{}", n), &n, FIB_ELF, FIB_ID, res_dir);
+    for (n, expected) in [(8_u32, 1_286_u64), (16_u32, 60_419_u64)] {
+        bench(
+            &format!("fib_{}", n),
+            &(n, 23_u64, 47_u64),
+            FIB_ELF,
+            FIB_ID,
+            expected,
+            res_dir,
+        );
     }
 }
 
-fn bench_rsa_32(res_dir: &Path) {
-    bench("rsa_32", &(), rsa_32_ELF, rsa_32_ID, res_dir);
+fn bench_rsa(res_dir: &Path) {
+    let message: u64 = 1_337;
+    let n: u64 = 4_200_970_013;
+
+    let encrypted: u64 = 864_554_256;
+    bench(
+        "rsa_enc",
+        &(message, n),
+        RSA_ENC_ELF,
+        RSA_ENC_ID,
+        encrypted,
+        res_dir,
+    );
+
+    let d: u64 = 2_145_513_473;
+    bench(
+        "rsa_dec",
+        &(encrypted, n, d),
+        RSA_DEC_ELF,
+        RSA_DEC_ID,
+        message,
+        res_dir,
+    );
 }
 
 fn main() {
@@ -81,5 +123,5 @@ fn main() {
     fs::create_dir_all(&res_dir).unwrap();
 
     bench_fib(&res_dir);
-    bench_rsa_32(&res_dir);
+    bench_rsa(&res_dir);
 }

@@ -1,5 +1,5 @@
 [package]
-name = "rsa-program"
+name = "rsa-dec-program"
 version = "0.1.0"
 edition = "2021"
 

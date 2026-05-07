@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["programs/fib", "programs/rsa", "script"]
+members = ["programs/fib", "programs/rsa-enc", "programs/rsa-dec", "script"]
 
 [profile.dev]
 opt-level = 3

@@ -17,6 +17,8 @@ def is_name(value: str | None) -> bool:
 
 
 def op_uses(op: Op) -> set[str]:
+    if op.opcode == "CLAIM":
+        return {op.dst} if is_name(op.dst) else set()
     if op.opcode == "ASSERT_EQ":
         return {value for value in (op.dst, op.src1) if is_name(value)}
     if op.opcode == "JZ":
@@ -25,7 +27,7 @@ def op_uses(op: Op) -> set[str]:
 
 
 def op_defs(op: Op) -> set[str]:
-    if op.opcode in {"ASSERT_EQ", "JZ"}:
+    if op.opcode in {"ASSERT_EQ", "JZ", "CLAIM"}:
         return set()
     return {op.dst} if is_name(op.dst) else set()
 
@@ -191,6 +193,8 @@ def allocate_registers(ops: list[Op]) -> dict[str, str]:
 def apply_allocation(ops: list[Op], allocation: dict[str, str]) -> list[Op]:
     rewritten = []
     for op in ops:
+        if op.opcode == "CLAIM":
+            continue
         if op.opcode == "JZ":
             rewritten.append(Op("JZ", allocation.get(op.dst, op.dst), op.src1))
             continue
@@ -205,6 +209,9 @@ def emit_ops(ops: list[Op]) -> str:
     lines = []
 
     for op in ops:
+        if op.opcode in ("READ_PRIV", "READ_PUB"):
+            lines.append(f"{op.opcode} {op.dst} {op.src1}")
+            continue
         if op.opcode == "SET":
             if is_name(op.src1) or is_register(op.src1):
                 lines.append(f"ADD {op.dst} {op.src1} r0")
@@ -227,3 +234,12 @@ class Backend:
         allocation = allocate_registers(optimized)
         allocated = apply_allocation(optimized, allocation)
         return emit_ops(allocated)
+
+    def run_with_symbols(self, ops: list[Op]) -> tuple[str, dict[str, str]]:
+        optimized = optimize_ops(ops)
+        allocation = allocate_registers(optimized)
+        allocated = apply_allocation(optimized, allocation)
+        symbols = {
+            name: reg for name, reg in allocation.items() if not name.startswith("t")
+        }
+        return emit_ops(allocated), symbols

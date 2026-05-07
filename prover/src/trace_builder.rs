@@ -9,7 +9,7 @@ use winterfell::TraceTable;
 
 pub fn get_trace_len(prog: &[Instruction]) -> usize {
     // +1 for initial row. winterfell restriction: min 8 and power of 2
-    (prog.len() + 1).next_power_of_two().max(8)
+    (prog.len() + 1).next_power_of_two().max(32)
 }
 
 fn get_ops(regs: &[u64; 16], s1: u8, s2: u8) -> (u64, u64) {
@@ -31,139 +31,6 @@ fn sub_wrap(a: u64, b: u64) -> u64 {
 
 fn mul_wrap(a: u64, b: u64) -> u64 {
     ((a as u128 * b as u128) >> 64) as u64
-}
-
-pub fn get_bits_used(prog: &[Instruction], vm_trace: &Trace) -> u64 {
-    let mut bits: u64 = 0;
-    let mut regs: [u64; 16] = [0; 16];
-    for (instr, row) in prog.iter().zip(vm_trace.iter()) {
-        let decomp_val = if let Instruction::Lt { src1, src2, .. } = instr {
-            let (s1, s2) = get_ops(&regs, *src1, *src2);
-            if s1 < s2 {
-                s2 - s1 - 1
-            } else {
-                s1 - s2
-            }
-        } else if let Instruction::Mod { src1, src2, .. } = instr {
-            let (_, s2) = get_ops(&regs, *src1, *src2);
-            let res = row.registers[instr_dest(instr) as usize];
-
-            s2 - res - 1
-        } else {
-            // decomp res for range check (non-lt)
-            match instr {
-                Instruction::Set { dest, .. }
-                | Instruction::Add { dest, .. }
-                | Instruction::Sub { dest, .. }
-                | Instruction::Mul { dest, .. }
-                | Instruction::Mod { dest, .. } => row.registers[*dest as usize],
-                Instruction::AssertEq { .. } => 1,
-                Instruction::Lt { .. } => unreachable!(),
-                Instruction::Jz { .. } => 1,
-            }
-        };
-        bits |= decomp_val;
-        regs = row.registers;
-    }
-    bits
-}
-
-pub fn get_wrap_bits_used(prog: &[Instruction], vm_trace: &Trace) -> u64 {
-    let mut bits: u64 = 0;
-    let mut regs: [u64; 16] = [0; 16];
-    for (instr, row) in prog.iter().zip(vm_trace.iter()) {
-        let wrap = match instr {
-            Instruction::Add { src1, src2, .. } => {
-                let (a, b) = get_ops(&regs, *src1, *src2);
-                add_wrap(a, b)
-            }
-            Instruction::Sub { src1, src2, .. } => {
-                let (a, b) = get_ops(&regs, *src1, *src2);
-                sub_wrap(a, b)
-            }
-            Instruction::Mul { src1, src2, .. } => {
-                let (a, b) = get_ops(&regs, *src1, *src2);
-                mul_wrap(a, b)
-            }
-            _ => 0,
-        };
-        bits |= wrap;
-        regs = row.registers;
-    }
-    bits
-}
-
-pub fn get_nonzero_sources(prog: &[Instruction], vm_trace: &Trace) -> (bool, bool) {
-    let mut regs: [u64; 16] = [0; 16];
-    let mut has_nonzero_src1 = false;
-    let mut has_nonzero_src2 = false;
-
-    for (instr, row) in prog.iter().zip(vm_trace.iter()) {
-        match instr {
-            Instruction::Add { src1, src2, .. }
-            | Instruction::Sub { src1, src2, .. }
-            | Instruction::Mul { src1, src2, .. }
-            | Instruction::Mod { src1, src2, .. }
-            | Instruction::Lt { src1, src2, .. } => {
-                let (a, b) = get_ops(&regs, *src1, *src2);
-                has_nonzero_src1 |= a != 0;
-                has_nonzero_src2 |= b != 0;
-            }
-            Instruction::AssertEq { r1, r2 } => {
-                let (a, b) = get_ops(&regs, *r1, *r2);
-                has_nonzero_src1 |= a != 0;
-                has_nonzero_src2 |= b != 0;
-            }
-            Instruction::Set { .. } => {}
-            Instruction::Jz { cond, .. } => {
-                let a = regs[*cond as usize];
-                has_nonzero_src1 |= a != 0;
-            }
-        }
-        regs = row.registers;
-    }
-
-    (has_nonzero_src1, has_nonzero_src2)
-}
-
-pub fn has_taken_jz(prog: &[Instruction], vm_trace: &Trace) -> bool {
-    let mut regs: [u64; 16] = [0; 16];
-    for (instr, row) in prog.iter().zip(vm_trace.iter()) {
-        if let Instruction::Jz { cond, .. } = instr {
-            if regs[*cond as usize] == 0 {
-                return true;
-            }
-        }
-        regs = row.registers;
-    }
-    false
-}
-
-pub fn has_not_taken_jz(prog: &[Instruction], vm_trace: &Trace) -> bool {
-    let mut regs: [u64; 16] = [0; 16];
-    for (instr, row) in prog.iter().zip(vm_trace.iter()) {
-        if let Instruction::Jz { cond, .. } = instr {
-            if regs[*cond as usize] == 1 {
-                return true;
-            }
-        }
-        regs = row.registers;
-    }
-    false
-}
-
-fn instr_dest(instr: &Instruction) -> u8 {
-    match instr {
-        Instruction::Set { dest, .. }
-        | Instruction::Add { dest, .. }
-        | Instruction::Sub { dest, .. }
-        | Instruction::Mul { dest, .. }
-        | Instruction::Mod { dest, .. }
-        | Instruction::Lt { dest, .. } => *dest,
-        Instruction::AssertEq { .. } | Instruction::Jz { .. } => {
-            unreachable!("{} does not write a destination", instr)
-        }
-    }
 }
 
 pub fn build_trace(prog: &[Instruction], vm_trace: &Trace) -> TraceTable<Felt> {
@@ -192,6 +59,9 @@ pub fn build_trace(prog: &[Instruction], vm_trace: &Trace) -> TraceTable<Felt> {
 
         let (s1, s2, mut res, mut quot, mut wrap) = match instr {
             Instruction::Set { val, .. } => (0, 0, *val, 1, 0),
+            Instruction::ReadPriv { dest, .. } | Instruction::ReadPub { dest, .. } => {
+                (0, 0, row.registers[*dest as usize], 1, 0)
+            }
             Instruction::Add { src1, src2, .. } => {
                 let (s1, s2, res) = perform_binary_op(&prev_regs, *src1, *src2, u64::wrapping_add);
                 (s1, s2, res, 1, add_wrap(s1, s2))
@@ -273,6 +143,26 @@ pub fn build_trace(prog: &[Instruction], vm_trace: &Trace) -> TraceTable<Felt> {
         cols[QUOT_COL][(n + 1)..trace_len].fill(Felt::ONE);
     } else {
         cols[QUOT_COL][1..trace_len].fill(Felt::ONE);
+    }
+    for bit in 0..NUM_RANGE_BITS {
+        for value in cols[RANGE_BITS_BASE + bit]
+            .iter_mut()
+            .take(trace_len)
+            .skip(n + 1)
+        {
+            *value = Felt::ZERO;
+        }
+        for value in cols[WRAP_BITS_BASE + bit]
+            .iter_mut()
+            .take(trace_len)
+            .skip(n + 1)
+        {
+            *value = Felt::ZERO;
+        }
+        if n + 1 < trace_len {
+            cols[RANGE_BITS_BASE + bit][trace_len - 1] = Felt::ONE;
+            cols[WRAP_BITS_BASE + bit][trace_len - 1] = Felt::ONE;
+        }
     }
     cols[ACTIVE_COL][n..trace_len].fill(Felt::ONE);
     TraceTable::init(cols)

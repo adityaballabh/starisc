@@ -9,6 +9,8 @@ fn used_registers(prog: &[Instruction]) -> Vec<u8> {
     for instr in prog {
         match instr {
             Instruction::Set { dest, .. }
+            | Instruction::ReadPriv { dest, .. }
+            | Instruction::ReadPub { dest, .. }
             | Instruction::Add { dest, .. }
             | Instruction::Sub { dest, .. }
             | Instruction::Mul { dest, .. }

@@ -4,6 +4,7 @@ pub(crate) mod public_inputs;
 pub(crate) mod trace_builder;
 
 use winterfell::math::fields::f128::BaseElement;
+pub use winterfell::Proof;
 
 pub(crate) const NUM_REGISTERS: usize = 16;
 const NUM_WITNESS_COLS: usize = 8;

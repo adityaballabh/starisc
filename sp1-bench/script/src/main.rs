@@ -2,6 +2,7 @@ use sp1_sdk::{
     blocking::{ProveRequest, Prover, ProverClient},
     include_elf, Elf, ProvingKey, SP1Stdin,
 };
+use std::convert::TryInto;
 use std::fs::{self, OpenOptions};
 use std::io::Write as IoWrite;
 use std::path::Path;
@@ -9,9 +10,20 @@ use std::time::Instant;
 
 const RUNS: usize = 5;
 const FIB_ELF: Elf = include_elf!("fib-program");
-const RSA_ELF: Elf = include_elf!("rsa-program");
+const RSA_ENC_ELF: Elf = include_elf!("rsa-enc-program");
+const RSA_DEC_ELF: Elf = include_elf!("rsa-dec-program");
 
-fn bench_once<P: Prover>(client: &P, pk: &P::ProvingKey, stdin: SP1Stdin) -> (f64, f64, usize) {
+fn read_committed_u64(bytes: &[u8]) -> u64 {
+    let bytes: [u8; 8] = bytes.try_into().expect("expected one committed u64");
+    u64::from_le_bytes(bytes)
+}
+
+fn bench_once<P: Prover>(
+    client: &P,
+    pk: &P::ProvingKey,
+    stdin: SP1Stdin,
+    expected: u64,
+) -> (f64, f64, usize) {
     let t_prove = Instant::now();
     let proof = client.prove(pk, stdin).run().unwrap();
     let prove_ms = t_prove.elapsed().as_secs_f64() * 1000.0;
@@ -21,11 +33,20 @@ fn bench_once<P: Prover>(client: &P, pk: &P::ProvingKey, stdin: SP1Stdin) -> (f6
     client.verify(&proof, pk.verifying_key(), None).unwrap();
     let verify_ms = t_verify.elapsed().as_secs_f64() * 1000.0;
 
+    let actual = read_committed_u64(proof.public_values.as_slice());
+    assert_eq!(actual, expected, "public output mismatch for benchmark");
+
     (prove_ms, verify_ms, proof_kb)
 }
 
-fn bench<P: Prover, F>(name: &str, client: &P, pk: &P::ProvingKey, res_dir: &Path, mk_stdin: F)
-where
+fn bench<P: Prover, F>(
+    name: &str,
+    client: &P,
+    pk: &P::ProvingKey,
+    res_dir: &Path,
+    expected: u64,
+    mk_stdin: F,
+) where
     F: Fn() -> SP1Stdin,
 {
     let out_path = res_dir.join(format!("{}.txt", name));
@@ -33,7 +54,7 @@ where
 
     let mut totals = (0.0_f64, 0.0_f64, 0_usize);
     for run in 1..=RUNS {
-        let (prove_ms, verify_ms, proof_kb) = bench_once(client, pk, mk_stdin());
+        let (prove_ms, verify_ms, proof_kb) = bench_once(client, pk, mk_stdin(), expected);
         totals.0 += prove_ms;
         totals.1 += verify_ms;
         totals.2 += proof_kb;
@@ -61,18 +82,50 @@ where
 
 fn bench_fib<P: Prover>(client: &P, res_dir: &Path) {
     let pk = client.setup(FIB_ELF).expect("failed to setup fib elf");
-    for n in [8_u32, 16_u32] {
-        bench(&format!("fib_{}", n), client, &pk, res_dir, move || {
-            let mut stdin = SP1Stdin::new();
-            stdin.write(&n);
-            stdin
-        });
+    for (n, expected) in [(8_u32, 1_286_u64), (16_u32, 60_419_u64)] {
+        bench(
+            &format!("fib_{}", n),
+            client,
+            &pk,
+            res_dir,
+            expected,
+            move || {
+                let mut stdin = SP1Stdin::new();
+                stdin.write(&n);
+                stdin.write(&23_u64);
+                stdin.write(&47_u64);
+                stdin
+            },
+        );
     }
 }
 
 fn bench_rsa<P: Prover>(client: &P, res_dir: &Path) {
-    let pk = client.setup(RSA_ELF).expect("failed to setup rsa elf");
-    bench("rsa_32", client, &pk, res_dir, SP1Stdin::new);
+    let message: u64 = 1_337;
+    let n: u64 = 4_200_970_013;
+    let encrypted: u64 = 864_554_256;
+    let d: u64 = 2_145_513_473;
+
+    let pk_enc = client
+        .setup(RSA_ENC_ELF)
+        .expect("failed to setup rsa_enc elf");
+    bench("rsa_enc", client, &pk_enc, res_dir, encrypted, || {
+        let mut stdin = SP1Stdin::new();
+        stdin.write(&message);
+        stdin.write(&n);
+        stdin
+    });
+
+    let pk_dec = client
+        .setup(RSA_DEC_ELF)
+        .expect("failed to setup rsa_dec elf");
+    bench("rsa_dec", client, &pk_dec, res_dir, message, || {
+        let mut stdin = SP1Stdin::new();
+        stdin.write(&encrypted);
+        stdin.write(&n);
+        stdin.write(&d);
+        stdin
+    });
 }
 
 fn main() {

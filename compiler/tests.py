@@ -165,13 +165,21 @@ class TestPow(unittest.TestCase):
         with self.assertRaises(TypeError):
             compile_first_stage("c = 11\ne = c ** -1")
 
-    def test_pow_var_raises(self):
-        with self.assertRaises(TypeError):
-            compile_first_stage("p = 2\nq = p + 15\nres = p ** q")
+    def test_pow_const_expr(self):
+        ops = compile_first_stage("p = 2\nq = p + 15\nres = p ** q")
+        muls = [op for op in ops if op.opcode == "MUL"]
+        self.assertTrue(len(muls) > 0)
 
-    def test_pow_reassigned_name_raises(self):
+    def test_pow_reassigned_const(self):
+        ops = compile_first_stage("e = 5\ne = e + 1\na = 7\nres = a ** e")
+        muls = [op for op in ops if op.opcode == "MUL"]
+        self.assertTrue(len(muls) > 0)
+
+    def test_pow_runtime_var_raises(self):
         with self.assertRaises(TypeError):
-            compile_first_stage("e = 5\ne = e + 1\na = 7\nres = a ** e")
+            compile_first_stage(
+                "a = private(0)\nb = private(1)\nres = a ** b\nclaim(res)"
+            )
 
 
 class TestModPow(unittest.TestCase):
@@ -436,9 +444,13 @@ class TestUnsupported(unittest.TestCase):
         with self.assertRaises(NotImplementedError):
             compile_first_stage("l = [7, 14, 21]")
 
-    def test_loop_raises(self):
+    def test_while_loop_raises(self):
         with self.assertRaises(NotImplementedError):
-            compile_first_stage("b = 1\nfor i in range(3):\n   b = b * 3")
+            compile_first_stage("x = 1\nwhile x:\n    x = 0")
+
+    def test_for_variable_range_raises(self):
+        with self.assertRaises(TypeError):
+            compile_first_stage("n = 3\nfor i in range(n):\n    x = i")
 
     def test_and_condition_raises(self):
         with self.assertRaises(NotImplementedError):
@@ -595,6 +607,113 @@ class TestBackendPipeline(unittest.TestCase):
         self.assertEqual(
             compile_to_op("x = 1\ny = 2\nassert x == x"), "SET r1 1\nASSERT_EQ r1 r1"
         )
+
+
+class TestInputs(unittest.TestCase):
+    def test_private_input_flattens(self):
+        self.assertEqual(
+            compile_first_stage("x = private(0)"),
+            [Op("READ_PRIV", "x", "0")],
+        )
+
+    def test_public_input_flattens(self):
+        self.assertEqual(
+            compile_first_stage("x = public(0)"),
+            [Op("READ_PUB", "x", "0")],
+        )
+
+    def test_multiple_slots(self):
+        self.assertEqual(
+            compile_first_stage("a = private(0)\nb = private(1)"),
+            [Op("READ_PRIV", "a", "0"), Op("READ_PRIV", "b", "1")],
+        )
+
+    def test_input_feeds_arithmetic(self):
+        ops = compile_first_stage("x = private(0)\ny = private(1)\nz = x + y")
+        self.assertEqual(ops[-1], Op("ADD", "z", "x", "y"))
+
+    def test_negative_slot_raises(self):
+        with self.assertRaises((TypeError, NotImplementedError)):
+            compile_first_stage("x = private(-1)")
+
+    def test_non_int_slot_raises(self):
+        with self.assertRaises(TypeError):
+            compile_first_stage("x = private(1.5)")
+
+    def test_private_input_emits_read_priv(self):
+        self.assertEqual(
+            compile_to_op("x = private(0)\ny = private(1)\nassert x == y"),
+            "READ_PRIV r1 0\nREAD_PRIV r2 1\nASSERT_EQ r1 r2",
+        )
+
+    def test_public_input_emits_read_pub(self):
+        self.assertEqual(
+            compile_to_op("x = public(0)\ny = public(1)\nassert x == y"),
+            "READ_PUB r1 0\nREAD_PUB r2 1\nASSERT_EQ r1 r2",
+        )
+
+    def test_mixed_inputs(self):
+        src = "a = private(0)\nb = public(0)\nc = a + b\nassert c == c"
+        op = compile_to_op(src)
+        self.assertIn("READ_PRIV", op)
+        self.assertIn("READ_PUB", op)
+        self.assertIn("ADD", op)
+
+
+class TestClaim(unittest.TestCase):
+    def test_output_flattens(self):
+        self.assertEqual(
+            compile_first_stage("x = 5\nclaim(x)"),
+            [Op("SET", "x", "5"), Op("CLAIM", "x")],
+        )
+
+    def test_output_prevents_dce(self):
+        op = compile_to_op("x = private(0)\ny = private(1)\nz = x + y\nclaim(z)")
+        self.assertIn("ADD", op)
+
+    def test_output_emits_no_instruction(self):
+        op = compile_to_op("x = private(0)\nclaim(x)")
+        self.assertEqual(op, "READ_PRIV r1 0")
+
+    def test_without_output_dce_removes(self):
+        op = compile_to_op("x = private(0)\ny = private(1)\nz = x + y")
+        self.assertEqual(op, "")
+
+
+class TestForLoop(unittest.TestCase):
+    def test_basic_unroll(self):
+        ops = compile_first_stage("x = 0\nfor i in range(3):\n    x = x + 1\nclaim(x)")
+        adds = [op for op in ops if op.opcode == "ADD"]
+        self.assertEqual(len(adds), 3)
+
+    def test_range_start_end(self):
+        ops = compile_first_stage(
+            "x = 0\nfor i in range(2, 5):\n    x = x + 1\nclaim(x)"
+        )
+        adds = [op for op in ops if op.opcode == "ADD"]
+        self.assertEqual(len(adds), 3)
+
+    def test_loop_var_in_private(self):
+        ops = compile_first_stage("for i in range(3):\n    x = private(i)\nclaim(x)")
+        reads = [op for op in ops if op.opcode == "READ_PRIV"]
+        self.assertEqual(len(reads), 3)
+        self.assertEqual([op.src1 for op in reads], ["0", "1", "2"])
+
+    def test_loop_var_expr_in_private(self):
+        ops = compile_first_stage(
+            "for i in range(3):\n    x = private(i + 1)\nclaim(x)"
+        )
+        reads = [op for op in ops if op.opcode == "READ_PRIV"]
+        self.assertEqual(len(reads), 3)
+        self.assertEqual([op.src1 for op in reads], ["1", "2", "3"])
+
+    def test_for_else_raises(self):
+        with self.assertRaises(NotImplementedError):
+            compile_first_stage("for i in range(3):\n    x = i\nelse:\n    x = 0")
+
+    def test_for_list_raises(self):
+        with self.assertRaises(TypeError):
+            compile_first_stage("for i in [4, 5, 6]:\n    x = i")
 
 
 if __name__ == "__main__":

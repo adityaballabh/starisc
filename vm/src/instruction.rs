@@ -3,6 +3,8 @@ use std::fmt;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Instruction {
     Set { dest: u8, val: u64 },
+    ReadPriv { dest: u8, index: usize },
+    ReadPub { dest: u8, index: usize },
     Add { dest: u8, src1: u8, src2: u8 },
     Sub { dest: u8, src1: u8, src2: u8 },
     Mul { dest: u8, src1: u8, src2: u8 },
@@ -20,6 +22,12 @@ impl fmt::Display for Instruction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Instruction::Set { dest, val } => write!(f, "{:<9} r{} {}", "SET", dest, val),
+            Instruction::ReadPriv { dest, index } => {
+                write!(f, "{:<9} r{} {}", "READ_PRIV", dest, index)
+            }
+            Instruction::ReadPub { dest, index } => {
+                write!(f, "{:<9} r{} {}", "READ_PUB", dest, index)
+            }
             Instruction::AssertEq { r1, r2 } => write!(f, "{:<9} r{} r{}", "ASSERT_EQ", r1, r2),
             Instruction::Add { dest, src1, src2 } => fmt_arith(f, "ADD", dest, src1, src2),
             Instruction::Sub { dest, src1, src2 } => fmt_arith(f, "SUB", dest, src1, src2),
