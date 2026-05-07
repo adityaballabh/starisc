@@ -597,5 +597,76 @@ class TestBackendPipeline(unittest.TestCase):
         )
 
 
+class TestInputs(unittest.TestCase):
+    def test_private_input_flattens(self):
+        self.assertEqual(
+            compile_first_stage("x = private(0)"),
+            [Op("READ_PRIV", "x", "0")],
+        )
+
+    def test_public_input_flattens(self):
+        self.assertEqual(
+            compile_first_stage("x = public(0)"),
+            [Op("READ_PUB", "x", "0")],
+        )
+
+    def test_multiple_slots(self):
+        self.assertEqual(
+            compile_first_stage("a = private(0)\nb = private(1)"),
+            [Op("READ_PRIV", "a", "0"), Op("READ_PRIV", "b", "1")],
+        )
+
+    def test_input_feeds_arithmetic(self):
+        ops = compile_first_stage("x = private(0)\ny = private(1)\nz = x + y")
+        self.assertEqual(ops[-1], Op("ADD", "z", "x", "y"))
+
+    def test_negative_slot_raises(self):
+        with self.assertRaises((TypeError, NotImplementedError)):
+            compile_first_stage("x = private(-1)")
+
+    def test_non_int_slot_raises(self):
+        with self.assertRaises(TypeError):
+            compile_first_stage("x = private(1.5)")
+
+    def test_private_input_emits_read_priv(self):
+        self.assertEqual(
+            compile_to_op("x = private(0)\ny = private(1)\nassert x == y"),
+            "READ_PRIV r1 0\nREAD_PRIV r2 1\nASSERT_EQ r1 r2",
+        )
+
+    def test_public_input_emits_read_pub(self):
+        self.assertEqual(
+            compile_to_op("x = public(0)\ny = public(1)\nassert x == y"),
+            "READ_PUB r1 0\nREAD_PUB r2 1\nASSERT_EQ r1 r2",
+        )
+
+    def test_mixed_inputs(self):
+        src = "a = private(0)\nb = public(0)\nc = a + b\nassert c == c"
+        op = compile_to_op(src)
+        self.assertIn("READ_PRIV", op)
+        self.assertIn("READ_PUB", op)
+        self.assertIn("ADD", op)
+
+
+class TestClaim(unittest.TestCase):
+    def test_output_flattens(self):
+        self.assertEqual(
+            compile_first_stage("x = 5\nclaim(x)"),
+            [Op("SET", "x", "5"), Op("CLAIM", "x")],
+        )
+
+    def test_output_prevents_dce(self):
+        op = compile_to_op("x = private(0)\ny = private(1)\nz = x + y\nclaim(z)")
+        self.assertIn("ADD", op)
+
+    def test_output_emits_no_instruction(self):
+        op = compile_to_op("x = private(0)\nclaim(x)")
+        self.assertEqual(op, "READ_PRIV r1 0")
+
+    def test_without_output_dce_removes(self):
+        op = compile_to_op("x = private(0)\ny = private(1)\nz = x + y")
+        self.assertEqual(op, "")
+
+
 if __name__ == "__main__":
     unittest.main()

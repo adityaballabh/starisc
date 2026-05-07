@@ -203,6 +203,17 @@ class Flattener(ast.NodeVisitor):
             case ast.Compare(left=left, ops=[ast.GtE()], comparators=[right]):
                 return self._negate_lt(left, right)
 
+            case ast.Call(
+                func=ast.Name(id=func_name),
+                args=[ast.Constant(value=slot)],
+            ) if func_name in ("private", "public"):
+                if not isinstance(slot, int) or slot < 0:
+                    raise TypeError(f"{func_name} slot must be a non-negative integer")
+                opcode = "READ_PRIV" if func_name == "private" else "READ_PUB"
+                t = self._incr_temp()
+                self._ops.append(Op(opcode, t, str(slot)))
+                return t
+
             case _:
                 raise NotImplementedError(f"unsupported expression: {ast.dump(node)}")
 
@@ -272,6 +283,16 @@ class Flattener(ast.NodeVisitor):
         if isinstance(node, ast.stmt):
             raise NotImplementedError(f"{type(node).__name__} is not supported")
         super().generic_visit(node)
+
+    def visit_Expr(self, node):
+        match node.value:
+            case ast.Call(func=ast.Name(id="claim"), args=[ast.Name(id=name)]):
+                # prevents DCE from eliminating the variable. CLAIM op is not emitted to VM
+                self._ops.append(Op("CLAIM", name))
+            case _:
+                raise NotImplementedError(
+                    f"unsupported expression statement at line {node.lineno}"
+                )
 
     def visit_Assert(self, node):
         test = node.test

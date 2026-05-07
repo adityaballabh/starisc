@@ -2,6 +2,8 @@ use clap::{Parser, Subcommand};
 use prover::prover::{
     prove_with_claim, prove_with_inputs, verify_with_claim, verify_with_inputs, Claim,
 };
+use std::collections::HashMap;
+use std::path::Path;
 use std::process;
 use vm::parse_file;
 
@@ -20,8 +22,8 @@ enum Command {
         private: Vec<u64>,
         #[arg(long, value_delimiter = ',')]
         public: Vec<u64>,
-        #[arg(long, value_parser = parse_claim)]
-        claim: Option<Claim>,
+        #[arg(long)]
+        claim: Option<String>,
         #[arg(short, long)]
         output: Option<String>,
     },
@@ -31,25 +33,39 @@ enum Command {
         proof: String,
         #[arg(long, value_delimiter = ',')]
         public: Vec<u64>,
-        #[arg(long, value_parser = parse_claim)]
-        claim: Option<Claim>,
+        #[arg(long)]
+        claim: Option<String>,
     },
 }
 
-fn parse_claim(s: &str) -> Result<Claim, String> {
-    let s = s.trim();
-    if !s.starts_with('r') {
-        return Err("claim must be of the form r<N>=<value>".into());
+fn load_symbols(op_path: &str) -> HashMap<String, u8> {
+    let symbols_path = Path::new(op_path).with_extension("symbols");
+    let mut map = HashMap::new();
+    if let Ok(content) = std::fs::read_to_string(&symbols_path) {
+        for line in content.lines() {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() == 2 {
+                if let Some(reg_num) = parts[1]
+                    .strip_prefix('r')
+                    .and_then(|n| n.parse::<u8>().ok())
+                {
+                    map.insert(parts[0].to_string(), reg_num);
+                }
+            }
+        }
     }
-    let rest = &s[1..];
-    let (reg_str, val_str) = rest
+    map
+}
+
+fn resolve_claim(s: &str, symbols: &HashMap<String, u8>) -> Result<Claim, String> {
+    let (name, val_str) = s
         .split_once('=')
-        .ok_or("claim must be of the form r<N>=<value>")?;
-    let register: u8 = reg_str.parse().map_err(|_| "invalid register number")?;
-    if register == 0 || register > 15 {
-        return Err("register must be r1-r15".into());
-    }
-    let expected: u64 = val_str.parse().map_err(|_| "invalid claim value")?;
+        .ok_or("claim must be of the form <var>=<val>")?;
+    let name = name.trim();
+    let expected: u64 = val_str.trim().parse().map_err(|_| "invalid claim value")?;
+    let register = symbols.get(name).copied().ok_or_else(|| {
+        format!("unknown variable '{name}'; no .symbols file or variable not found")
+    })?;
     Ok(Claim { register, expected })
 }
 
@@ -67,6 +83,19 @@ fn main() {
                 eprintln!("parse error: {e}");
                 process::exit(1);
             });
+
+            let symbols = load_symbols(&program);
+            let claim = claim.map(|c| {
+                resolve_claim(&c, &symbols).unwrap_or_else(|e| {
+                    eprintln!("invalid claim: {e}");
+                    process::exit(1);
+                })
+            });
+
+            if !private.is_empty() && claim.is_none() {
+                eprintln!("error: private inputs require a --claim");
+                process::exit(1);
+            }
 
             let proof = match &claim {
                 Some(c) => prove_with_claim(&prog, &private, &public, c),
@@ -96,6 +125,14 @@ fn main() {
             let prog = parse_file(&program).unwrap_or_else(|e| {
                 eprintln!("parse error: {e}");
                 process::exit(1);
+            });
+
+            let symbols = load_symbols(&program);
+            let claim = claim.map(|c| {
+                resolve_claim(&c, &symbols).unwrap_or_else(|e| {
+                    eprintln!("invalid claim: {e}");
+                    process::exit(1);
+                })
             });
 
             let proof_bytes = std::fs::read(&proof).unwrap_or_else(|e| {

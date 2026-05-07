@@ -16,3 +16,8 @@ def compile_second_stage(flattened_ops: list[Op]) -> str:
 
 def compile_to_op(source: str) -> str:
     return compile_second_stage(compile_first_stage(source))
+
+
+def compile_with_symbols(source: str) -> tuple[str, dict[str, str]]:
+    ops = compile_first_stage(source)
+    return Backend().run_with_symbols(ops)
