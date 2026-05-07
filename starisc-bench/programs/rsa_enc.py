@@ -5,6 +5,6 @@ n = public(0)
 
 e = 65537
 
-encrypted = (message ** e) % n
+encrypted = (message**e) % n
 
 claim(encrypted)
