@@ -133,6 +133,7 @@ fn write_air_log(name: &str, op_path: &str, extra_args: &[String], log_dir: &Pat
 }
 
 fn main() {
+    let write_air_output = std::env::args().skip(1).any(|arg| arg == "--air-output");
     let bench_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let prog_dir = bench_dir.join("programs");
     let generated_dir = bench_dir.join("generated");
@@ -189,6 +190,8 @@ fn main() {
         let mut f = OpenOptions::new().append(true).open(&out_path).unwrap();
         f.write_all(avg.as_bytes()).unwrap();
 
-        write_air_log(&name, &op_path, &extra_args, &log_dir);
+        if write_air_output {
+            write_air_log(&name, &op_path, &extra_args, &log_dir);
+        }
     }
 }

@@ -82,7 +82,11 @@ pub fn build_trace(prog: &[Instruction], vm_trace: &Trace) -> TraceTable<Felt> {
             Instruction::Mod { src1, src2, .. } => {
                 let (a, b) = get_ops(&prev_regs, *src1, *src2);
                 // Store quotient + 1 so the MOD quotient witness is never identically zero.
-                (a, b, a % b, (a / b) + 1, 0)
+                if active {
+                    (a, b, a % b, (a / b) + 1, 0)
+                } else {
+                    (a, b, 0, 1, 0)
+                }
             }
             Instruction::Lt { src1, src2, .. } => {
                 let (a, b) = get_ops(&prev_regs, *src1, *src2);
@@ -109,7 +113,9 @@ pub fn build_trace(prog: &[Instruction], vm_trace: &Trace) -> TraceTable<Felt> {
         };
 
         // bit decomposition. lt/mod rows decompose a comparison diff, all others decompose res.
-        let decomp_val = if matches!(instr, Instruction::Lt { .. }) {
+        let decomp_val = if !active {
+            0
+        } else if matches!(instr, Instruction::Lt { .. }) {
             if res == 1 {
                 s2 - s1 - 1
             } else {

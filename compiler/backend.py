@@ -62,10 +62,11 @@ def eliminate_dead_assignments(ops: list[Op]) -> list[Op]:
         _, live_out = compute_liveness(optimized)
         next_ops = []
         changed = False
+        jump_spans = protected_jump_spans(optimized)
 
-        for op, live_after in zip(optimized, live_out):
+        for index, (op, live_after) in enumerate(zip(optimized, live_out)):
             defs = op_defs(op)
-            if defs and defs.isdisjoint(live_after):
+            if defs and defs.isdisjoint(live_after) and index not in jump_spans:
                 changed = True
                 continue
             next_ops.append(op)
@@ -73,6 +74,16 @@ def eliminate_dead_assignments(ops: list[Op]) -> list[Op]:
         if not changed:
             return optimized
         optimized = next_ops
+
+
+def protected_jump_spans(ops: list[Op]) -> set[int]:
+    protected = set()
+    for index, op in enumerate(ops):
+        if op.opcode != "JZ":
+            continue
+        target = index + 1 + int(op.src1)
+        protected.update(range(index + 1, min(target, len(ops))))
+    return protected
 
 
 def build_interference_graph(ops: list[Op]) -> dict[str, set[str]]:

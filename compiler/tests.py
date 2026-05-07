@@ -608,6 +608,12 @@ class TestBackendPipeline(unittest.TestCase):
             compile_to_op("x = 1\ny = 2\nassert x == x"), "SET r1 1\nASSERT_EQ r1 r1"
         )
 
+    def test_dead_assignment_in_jump_span_preserves_offset(self):
+        self.assertEqual(
+            compile_to_op("x = 1\nif x < 2:\n    y = 3\nassert x == x"),
+            "SET r1 1\nSET r2 2\nLT r2 r1 r2\nJZ r2 1\nSET r2 3\nASSERT_EQ r1 r1",
+        )
+
 
 class TestInputs(unittest.TestCase):
     def test_private_input_flattens(self):

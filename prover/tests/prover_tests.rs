@@ -133,6 +133,23 @@ fn prove_verify_jz_to_end() {
 }
 
 #[test]
+fn prove_verify_skipped_mod_with_zero_divisor() {
+    assert_program_proves(
+        "JZ r0 1
+         MOD r1 r2 r0",
+    );
+}
+
+#[test]
+fn prove_verify_skipped_lt_with_unordered_operands() {
+    assert_program_proves(
+        "SET r2 5
+         JZ r0 1
+         LT r1 r0 r2",
+    );
+}
+
+#[test]
 fn prove_verify_all_ops() {
     let prog = load_program("all_ops");
     assert_prove_verify(&prog);
