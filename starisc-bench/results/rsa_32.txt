@@ -1,6 +1,0 @@
-run 1: prove=20.065ms  verify=0.938ms  proof=69KB
-run 2: prove=18.937ms  verify=0.842ms  proof=69KB
-run 3: prove=18.555ms  verify=0.815ms  proof=69KB
-run 4: prove=18.324ms  verify=0.822ms  proof=69KB
-run 5: prove=18.626ms  verify=0.797ms  proof=69KB
-avg(5): prove=18.901ms  verify=0.843ms  proof=69KB

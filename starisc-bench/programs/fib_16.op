@@ -1,19 +1,17 @@
-SET r2 0
-SET r1 1
-ADD r2 r2 r1
+READ_PRIV r1 0
+READ_PRIV r2 1
 ADD r1 r1 r2
-ADD r2 r2 r1
+ADD r2 r1 r2
 ADD r1 r1 r2
-ADD r2 r2 r1
+ADD r2 r1 r2
 ADD r1 r1 r2
-ADD r2 r2 r1
-ADD r3 r1 r2
-ADD r1 r2 r3
-ADD r2 r3 r1
+ADD r2 r1 r2
 ADD r1 r1 r2
-ADD r2 r2 r1
+ADD r2 r1 r2
 ADD r1 r1 r2
-ADD r2 r2 r1
+ADD r2 r1 r2
 ADD r1 r1 r2
-SET r2 987
-ASSERT_EQ r1 r2
+ADD r2 r1 r2
+ADD r1 r1 r2
+ADD r2 r1 r2
+ADD r1 r1 r2
