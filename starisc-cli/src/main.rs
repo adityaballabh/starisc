@@ -1,6 +1,8 @@
 use clap::{Parser, Subcommand};
+use prover::air_output::write_air_table;
 use prover::prover::{
-    prove_with_claim, prove_with_inputs, verify_with_claim, verify_with_inputs, Claim,
+    extend_with_claim, prove_with_claim, prove_with_inputs, verify_with_claim, verify_with_inputs,
+    Claim,
 };
 use std::collections::HashMap;
 use std::path::Path;
@@ -27,6 +29,8 @@ enum Command {
         claim: Option<String>,
         #[arg(short, long)]
         output: Option<String>,
+        #[arg(long)]
+        air_output: Option<String>,
     },
     Verify {
         program: String,
@@ -79,6 +83,7 @@ fn main() {
             public,
             claim,
             output,
+            air_output,
         } => {
             let prog = parse_file(&program).unwrap_or_else(|e| {
                 eprintln!("parse error: {e}");
@@ -116,6 +121,22 @@ fn main() {
                 eprintln!("failed to write proof: {e}");
                 process::exit(1);
             });
+
+            if let Some(path) = air_output {
+                let air_prog = match claim {
+                    Some(claim) => extend_with_claim(&prog, &claim),
+                    None => prog.clone(),
+                };
+                let (vm_trace, _) = vm::execute_with_inputs(&air_prog, &private, &public)
+                    .unwrap_or_else(|e| {
+                        eprintln!("failed to build AIR output trace: {e}");
+                        process::exit(1);
+                    });
+                write_air_table(&air_prog, &vm_trace, &path).unwrap_or_else(|e| {
+                    eprintln!("failed to write AIR output: {e}");
+                    process::exit(1);
+                });
+            }
 
             println!("proof written to {} ({}KB)", out_path, bytes.len() / 1024);
             println!("prove_ms={prove_ms:.3}");

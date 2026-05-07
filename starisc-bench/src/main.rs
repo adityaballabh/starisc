@@ -111,6 +111,27 @@ fn bench_once(
     (proof_ms, verify_ms, proof_kb)
 }
 
+fn write_air_log(name: &str, op_path: &str, extra_args: &[String], log_dir: &Path) {
+    let proof_path = log_dir.join(format!("{}.proof", name));
+    let air_path = log_dir.join(format!("{}.air.txt", name));
+    let bin = starisc_bin();
+
+    let mut cmd = Command::new(&bin);
+    cmd.arg("prove").arg(op_path);
+    cmd.args(extra_args);
+    cmd.args(["--output", proof_path.to_str().unwrap()]);
+    cmd.args(["--air-output", air_path.to_str().unwrap()]);
+
+    let output = cmd.output().unwrap();
+
+    assert!(
+        output.status.success(),
+        "air output failed for {}: {}",
+        name,
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 fn main() {
     let bench_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let prog_dir = bench_dir.join("programs");
@@ -167,5 +188,7 @@ fn main() {
         println!("{}: {}", name, avg);
         let mut f = OpenOptions::new().append(true).open(&out_path).unwrap();
         f.write_all(avg.as_bytes()).unwrap();
+
+        write_air_log(&name, &op_path, &extra_args, &log_dir);
     }
 }

@@ -1,8 +1,10 @@
 pub(crate) mod air;
+pub mod air_output;
 pub mod prover;
 pub(crate) mod public_inputs;
 pub(crate) mod trace_builder;
 
+pub use air_output::write_air_table;
 use winterfell::math::fields::f128::BaseElement;
 pub use winterfell::Proof;
 
