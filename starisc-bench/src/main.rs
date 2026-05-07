@@ -2,7 +2,6 @@ use std::fs::{self, OpenOptions};
 use std::io::Write as IoWrite;
 use std::path::Path;
 use std::process::Command;
-use std::time::Instant;
 
 const RUNS: usize = 5;
 
@@ -10,15 +9,27 @@ fn project_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap()
 }
 
-fn compile(path: &Path) -> String {
+fn compile(path: &Path, out_dir: &Path) -> String {
     let status = Command::new("python3")
-        .args(["-m", "compiler", path.to_str().unwrap()])
+        .args([
+            "-m",
+            "compiler",
+            path.to_str().unwrap(),
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+        ])
         .current_dir(project_root())
         .status()
         .unwrap();
 
     assert!(status.success(), "compiler failed on {:?}", path);
-    format!("{}.op", path.with_extension("").display())
+    out_dir
+        .join(format!(
+            "{}.op",
+            path.file_stem().unwrap().to_str().unwrap()
+        ))
+        .to_string_lossy()
+        .into_owned()
 }
 
 fn load_extra_args(py_path: &Path) -> Vec<String> {
@@ -36,6 +47,14 @@ fn starisc_bin() -> std::path::PathBuf {
     path
 }
 
+fn parse_elapsed_ms(stdout: &[u8], label: &str) -> f64 {
+    String::from_utf8_lossy(stdout)
+        .lines()
+        .find_map(|line| line.strip_prefix(label))
+        .and_then(|value| value.parse().ok())
+        .unwrap_or_else(|| panic!("missing {label} in starisc output"))
+}
+
 fn bench_once(
     name: &str,
     op_path: &str,
@@ -50,9 +69,7 @@ fn bench_once(
     prove_cmd.args(extra_args);
     prove_cmd.args(["--output", proof_path.to_str().unwrap()]);
 
-    let t_proof = Instant::now();
     let output = prove_cmd.output().unwrap();
-    let proof_ms = t_proof.elapsed().as_secs_f64() * 1000.0;
 
     assert!(
         output.status.success(),
@@ -61,6 +78,7 @@ fn bench_once(
         String::from_utf8_lossy(&output.stderr)
     );
 
+    let proof_ms = parse_elapsed_ms(&output.stdout, "prove_ms=");
     let proof_kb = fs::metadata(&proof_path).unwrap().len() as usize / 1024;
 
     let mut verify_extra = vec![];
@@ -79,9 +97,7 @@ fn bench_once(
     verify_cmd.args(["--proof", proof_path.to_str().unwrap()]);
     verify_cmd.args(&verify_extra);
 
-    let t_verify = Instant::now();
     let output = verify_cmd.output().unwrap();
-    let verify_ms = t_verify.elapsed().as_secs_f64() * 1000.0;
 
     assert!(
         output.status.success(),
@@ -90,13 +106,17 @@ fn bench_once(
         String::from_utf8_lossy(&output.stderr)
     );
 
+    let verify_ms = parse_elapsed_ms(&output.stdout, "verify_ms=");
+
     (proof_ms, verify_ms, proof_kb)
 }
 
 fn main() {
     let bench_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let prog_dir = bench_dir.join("programs");
+    let generated_dir = bench_dir.join("generated");
     let res_dir = bench_dir.join("results");
+    fs::create_dir_all(&generated_dir).unwrap();
     fs::create_dir_all(&res_dir).unwrap();
 
     let paths: Vec<_> = fs::read_dir(&prog_dir)
@@ -114,7 +134,7 @@ fn main() {
 
     for path in paths {
         let name = path.file_stem().unwrap().to_str().unwrap().to_owned();
-        let op_path = compile(&path);
+        let op_path = compile(&path, &generated_dir);
         let extra_args = load_extra_args(&path);
         let out_path = res_dir.join(format!("{}.txt", name));
 

@@ -5,6 +5,7 @@ use prover::prover::{
 use std::collections::HashMap;
 use std::path::Path;
 use std::process;
+use std::time::Instant;
 use vm::parse_file;
 
 #[derive(Parser)]
@@ -97,10 +98,12 @@ fn main() {
                 process::exit(1);
             }
 
+            let timer = Instant::now();
             let proof = match &claim {
                 Some(c) => prove_with_claim(&prog, &private, &public, c),
                 None => prove_with_inputs(&prog, &private, &public),
             };
+            let prove_ms = timer.elapsed().as_secs_f64() * 1000.0;
 
             let proof = proof.unwrap_or_else(|e| {
                 eprintln!("proving failed: {e}");
@@ -115,6 +118,7 @@ fn main() {
             });
 
             println!("proof written to {} ({}KB)", out_path, bytes.len() / 1024);
+            println!("prove_ms={prove_ms:.3}");
         }
         Command::Verify {
             program,
@@ -145,13 +149,18 @@ fn main() {
                 process::exit(1);
             });
 
+            let timer = Instant::now();
             let result = match &claim {
                 Some(c) => verify_with_claim(&prog, proof, &public, c),
                 None => verify_with_inputs(&prog, proof, &public),
             };
+            let verify_ms = timer.elapsed().as_secs_f64() * 1000.0;
 
             match result {
-                Ok(()) => println!("verification succeeded"),
+                Ok(()) => {
+                    println!("verification succeeded");
+                    println!("verify_ms={verify_ms:.3}");
+                }
                 Err(e) => {
                     eprintln!("verification failed: {e}");
                     process::exit(1);

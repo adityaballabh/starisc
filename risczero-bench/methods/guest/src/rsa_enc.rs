@@ -1,21 +1,13 @@
 use risc0_zkvm::guest::env;
 
 fn main() {
-    let p: u64 = 70_001;
-    let q: u64 = 60_013;
-    let n = p * q;
-    let phi = (p - 1) * (q - 1);
-
+    let message: u64 = env::read();
+    let n: u64 = env::read();
     let e: u64 = 65_537;
-    let d: u64 = 2_145_513_473;
 
-    let message: u64 = 1_337;
     let encrypted = mod_pow(message, e, n);
-    let decrypted = mod_pow(encrypted, d, n);
 
-    assert_eq!((e as u64 * d as u64) % phi, 1);
-    assert_eq!(decrypted, message);
-    env::commit(&decrypted);
+    env::commit(&encrypted);
 }
 
 fn mod_pow(mut base: u64, mut exp: u64, modulus: u64) -> u64 {
