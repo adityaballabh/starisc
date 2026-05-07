@@ -165,13 +165,21 @@ class TestPow(unittest.TestCase):
         with self.assertRaises(TypeError):
             compile_first_stage("c = 11\ne = c ** -1")
 
-    def test_pow_var_raises(self):
-        with self.assertRaises(TypeError):
-            compile_first_stage("p = 2\nq = p + 15\nres = p ** q")
+    def test_pow_const_expr(self):
+        ops = compile_first_stage("p = 2\nq = p + 15\nres = p ** q")
+        muls = [op for op in ops if op.opcode == "MUL"]
+        self.assertTrue(len(muls) > 0)
 
-    def test_pow_reassigned_name_raises(self):
+    def test_pow_reassigned_const(self):
+        ops = compile_first_stage("e = 5\ne = e + 1\na = 7\nres = a ** e")
+        muls = [op for op in ops if op.opcode == "MUL"]
+        self.assertTrue(len(muls) > 0)
+
+    def test_pow_runtime_var_raises(self):
         with self.assertRaises(TypeError):
-            compile_first_stage("e = 5\ne = e + 1\na = 7\nres = a ** e")
+            compile_first_stage(
+                "a = private(0)\nb = private(1)\nres = a ** b\nclaim(res)"
+            )
 
 
 class TestModPow(unittest.TestCase):
@@ -436,9 +444,13 @@ class TestUnsupported(unittest.TestCase):
         with self.assertRaises(NotImplementedError):
             compile_first_stage("l = [7, 14, 21]")
 
-    def test_loop_raises(self):
+    def test_while_loop_raises(self):
         with self.assertRaises(NotImplementedError):
-            compile_first_stage("b = 1\nfor i in range(3):\n   b = b * 3")
+            compile_first_stage("x = 1\nwhile x:\n    x = 0")
+
+    def test_for_variable_range_raises(self):
+        with self.assertRaises(TypeError):
+            compile_first_stage("n = 3\nfor i in range(n):\n    x = i")
 
     def test_and_condition_raises(self):
         with self.assertRaises(NotImplementedError):
@@ -666,6 +678,42 @@ class TestClaim(unittest.TestCase):
     def test_without_output_dce_removes(self):
         op = compile_to_op("x = private(0)\ny = private(1)\nz = x + y")
         self.assertEqual(op, "")
+
+
+class TestForLoop(unittest.TestCase):
+    def test_basic_unroll(self):
+        ops = compile_first_stage("x = 0\nfor i in range(3):\n    x = x + 1\nclaim(x)")
+        adds = [op for op in ops if op.opcode == "ADD"]
+        self.assertEqual(len(adds), 3)
+
+    def test_range_start_end(self):
+        ops = compile_first_stage(
+            "x = 0\nfor i in range(2, 5):\n    x = x + 1\nclaim(x)"
+        )
+        adds = [op for op in ops if op.opcode == "ADD"]
+        self.assertEqual(len(adds), 3)
+
+    def test_loop_var_in_private(self):
+        ops = compile_first_stage("for i in range(3):\n    x = private(i)\nclaim(x)")
+        reads = [op for op in ops if op.opcode == "READ_PRIV"]
+        self.assertEqual(len(reads), 3)
+        self.assertEqual([op.src1 for op in reads], ["0", "1", "2"])
+
+    def test_loop_var_expr_in_private(self):
+        ops = compile_first_stage(
+            "for i in range(3):\n    x = private(i + 1)\nclaim(x)"
+        )
+        reads = [op for op in ops if op.opcode == "READ_PRIV"]
+        self.assertEqual(len(reads), 3)
+        self.assertEqual([op.src1 for op in reads], ["1", "2", "3"])
+
+    def test_for_else_raises(self):
+        with self.assertRaises(NotImplementedError):
+            compile_first_stage("for i in range(3):\n    x = i\nelse:\n    x = 0")
+
+    def test_for_list_raises(self):
+        with self.assertRaises(TypeError):
+            compile_first_stage("for i in [4, 5, 6]:\n    x = i")
 
 
 if __name__ == "__main__":

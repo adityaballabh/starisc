@@ -47,6 +47,20 @@ class Flattener(ast.NodeVisitor):
                 return v
             case ast.Name(id=name):
                 return self._consts.get(name)
+            case ast.BinOp(left=left, op=op, right=right):
+                left_val = self._const_int(left)
+                right_val = self._const_int(right)
+                if left_val is None or right_val is None:
+                    return None
+                match op:
+                    case ast.Add():
+                        return left_val + right_val
+                    case ast.Sub():
+                        return left_val - right_val
+                    case ast.Mult():
+                        return left_val * right_val
+                    case _:
+                        return None
             case _:
                 return None
 
@@ -205,9 +219,10 @@ class Flattener(ast.NodeVisitor):
 
             case ast.Call(
                 func=ast.Name(id=func_name),
-                args=[ast.Constant(value=slot)],
+                args=[arg],
             ) if func_name in ("private", "public"):
-                if not isinstance(slot, int) or slot < 0:
+                slot = self._const_int(arg)
+                if slot is None or slot < 0:
                     raise TypeError(f"{func_name} slot must be a non-negative integer")
                 opcode = "READ_PRIV" if func_name == "private" else "READ_PUB"
                 t = self._incr_temp()
@@ -278,6 +293,42 @@ class Flattener(ast.NodeVisitor):
             if name not in assigned_in_branches
         }
         self._assigned_names.update(assigned_in_branches)
+
+    def _parse_range(self, node):
+        match node:
+            case ast.Call(
+                func=ast.Name(id="range"),
+                args=[ast.Constant(value=end)],
+            ) if isinstance(end, int):
+                return 0, end
+            case ast.Call(
+                func=ast.Name(id="range"),
+                args=[ast.Constant(value=start), ast.Constant(value=end)],
+            ) if isinstance(start, int) and isinstance(end, int):
+                return start, end
+            case _:
+                return None
+
+    def visit_For(self, node):
+        if not isinstance(node.target, ast.Name):
+            raise TypeError(f"unsupported for target: {type(node.target).__name__}")
+        if node.orelse:
+            raise NotImplementedError("for/else is not supported")
+
+        bounds = self._parse_range(node.iter)
+        if bounds is None:
+            raise TypeError("for loop requires range() with constant bounds")
+
+        start, end = bounds
+        var = node.target.id
+        for i in range(start, end):
+            self._consts[var] = i
+            for stmt in node.body:
+                self.visit(stmt)
+        self._consts.pop(var, None)
+
+    def visit_ImportFrom(self, node):
+        pass
 
     def generic_visit(self, node):
         if isinstance(node, ast.stmt):
