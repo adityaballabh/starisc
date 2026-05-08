@@ -3,6 +3,7 @@ import ast
 from .constants import (
     BOOL_ONE,
     FUNC_CLAIM,
+    FUNC_CONST,
     FUNC_PRIVATE,
     FUNC_PUBLIC,
     FUNC_RANGE,
@@ -25,10 +26,10 @@ BINOP_MAP = {ast.Add: OP_ADD, ast.Sub: OP_SUB, ast.Mult: OP_MUL, ast.Mod: OP_MOD
 
 
 class Flattener(ast.NodeVisitor):
-    def __init__(self):
+    def __init__(self, constants=None):
         self._ops = []
         self._next_temp = 0
-        self._consts = {}
+        self._consts = dict(constants or {})
         self._assigned_names = set()
         self._loop_consts = set()
 
@@ -67,6 +68,10 @@ class Flattener(ast.NodeVisitor):
             case ast.Constant(value=v) if isinstance(v, int):
                 return v
             case ast.Name(id=name):
+                return self._consts.get(name)
+            case ast.Call(
+                func=ast.Name(id=func_name), args=[ast.Constant(value=name)]
+            ) if func_name == FUNC_CONST and isinstance(name, str):
                 return self._consts.get(name)
             case ast.BinOp(left=left, op=op, right=right):
                 left_val = self._const_int(left)
@@ -257,10 +262,32 @@ class Flattener(ast.NodeVisitor):
                 self._ops.append(Op(opcode, t, str(slot)))
                 return t
 
+            case ast.Call(
+                func=ast.Name(id=func_name),
+                args=[ast.Constant(value=name)],
+            ) if func_name == FUNC_CONST and isinstance(name, str):
+                value = self._consts.get(name)
+                if value is None:
+                    raise TypeError(f"missing compile-time const: {name}")
+                t = self._incr_temp()
+                self._ops.append(Op(OP_SET, t, str(value)))
+                return t
+
             case _:
                 raise NotImplementedError(f"unsupported expression: {ast.dump(node)}")
 
     def _assign_to(self, dest, value_node):
+        match value_node:
+            case ast.Call(
+                func=ast.Name(id=func_name),
+                args=[ast.Constant(value=name)],
+            ) if func_name == FUNC_CONST and isinstance(name, str):
+                value = self._consts.get(name)
+                if value is None:
+                    raise TypeError(f"missing compile-time const: {name}")
+                self._consts[dest] = value
+                return
+
         const_value = self._const_int(value_node)
         prev_ops_len = len(self._ops)
         result = self._flatten_expr(value_node)
@@ -326,18 +353,19 @@ class Flattener(ast.NodeVisitor):
         match node:
             case ast.Call(
                 func=ast.Name(id=func_name),
-                args=[ast.Constant(value=end)],
-            ) if func_name == FUNC_RANGE and isinstance(end, int):
-                return 0, end
+                args=[end_node],
+            ) if func_name == FUNC_RANGE:
+                end = self._const_int(end_node)
+                if end is not None:
+                    return 0, end
             case ast.Call(
                 func=ast.Name(id=func_name),
-                args=[ast.Constant(value=start), ast.Constant(value=end)],
-            ) if (
-                func_name == FUNC_RANGE
-                and isinstance(start, int)
-                and isinstance(end, int)
-            ):
-                return start, end
+                args=[start_node, end_node],
+            ) if func_name == FUNC_RANGE:
+                start = self._const_int(start_node)
+                end = self._const_int(end_node)
+                if start is not None and end is not None:
+                    return start, end
             case _:
                 return None
 

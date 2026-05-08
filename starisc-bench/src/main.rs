@@ -7,6 +7,8 @@ const RUNS: usize = 5;
 const PYTHON: &str = "python3";
 const CARGO: &str = "cargo";
 const COMPILER: &str = "compiler";
+const CONST: &str = "--const";
+const NAME: &str = "--name";
 const BUILD: &str = "build";
 const RELEASE: &str = "--release";
 const PACKAGE: &str = "-p";
@@ -34,32 +36,39 @@ const GENERATED: &str = "generated";
 const RESULTS: &str = "results";
 const LOGS: &str = "logs";
 const SUPPORT_MOD: &str = "starisc";
-const PY_DIR: &str = "py";
 const ARGS_DIR: &str = "args";
+
+struct BenchCase {
+    name: String,
+    py_path: std::path::PathBuf,
+    compiler_consts: Vec<String>,
+    extra_args: Vec<String>,
+}
 
 fn project_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap()
 }
 
-fn compile(path: &Path, out_dir: &Path) -> String {
-    let status = Command::new(PYTHON)
-        .args([
-            "-m",
-            COMPILER,
-            path.to_str().unwrap(),
-            OUT_DIR,
-            out_dir.to_str().unwrap(),
-        ])
-        .current_dir(project_root())
-        .status()
-        .unwrap();
+fn compile(case: &BenchCase, out_dir: &Path) -> String {
+    let mut cmd = Command::new(PYTHON);
+    cmd.args([
+        "-m",
+        COMPILER,
+        case.py_path.to_str().unwrap(),
+        OUT_DIR,
+        out_dir.to_str().unwrap(),
+        NAME,
+        &case.name,
+    ]);
+    for value in &case.compiler_consts {
+        cmd.args([CONST, value]);
+    }
 
-    assert!(status.success(), "compiler failed on {:?}", path);
+    let status = cmd.current_dir(project_root()).status().unwrap();
+
+    assert!(status.success(), "compiler failed on {:?}", case.py_path);
     out_dir
-        .join(format!(
-            "{}.{OP_EXT}",
-            path.file_stem().unwrap().to_str().unwrap()
-        ))
+        .join(format!("{}.{OP_EXT}", case.name))
         .to_string_lossy()
         .into_owned()
 }
@@ -75,45 +84,111 @@ fn program_family(path: &Path, prog_dir: &Path) -> String {
         .unwrap_or_else(|| "misc".to_string())
 }
 
-fn program_size(path: &Path) -> u64 {
-    path.file_stem()
-        .and_then(|stem| stem.to_str())
-        .and_then(|stem| stem.split('_').find_map(|part| part.parse().ok()))
+fn program_size(name: &str) -> u64 {
+    name.split('_')
+        .find_map(|part| part.parse().ok())
         .unwrap_or(u64::MAX)
 }
 
-fn load_extra_args(py_path: &Path) -> Vec<String> {
-    let args_path = if py_path
-        .parent()
-        .and_then(|parent| parent.file_name())
-        .is_some_and(|name| name == PY_DIR)
-    {
-        py_path
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join(ARGS_DIR)
-            .join(py_path.file_name().unwrap())
-            .with_extension(ARGS_EXT)
+fn args_dir_for_py(py_path: &Path) -> std::path::PathBuf {
+    let parent = py_path.parent().unwrap();
+    let args_dir = parent.join(ARGS_DIR);
+    if args_dir.exists() {
+        args_dir
     } else {
-        py_path.with_extension(ARGS_EXT)
-    };
-    match fs::read_to_string(&args_path) {
-        Ok(content) => content.split_whitespace().map(String::from).collect(),
-        Err(_) => vec![],
+        parent.to_path_buf()
     }
 }
 
-fn collect_programs(dir: &Path, paths: &mut Vec<std::path::PathBuf>) {
+fn split_args(content: &str) -> (Vec<String>, Vec<String>) {
+    let mut compiler_consts = vec![];
+    let mut extra_args = vec![];
+    let mut args = content.split_whitespace();
+    while let Some(arg) = args.next() {
+        if arg == CONST {
+            compiler_consts.push(
+                args.next()
+                    .expect("--const requires NAME=VALUE")
+                    .to_string(),
+            );
+        } else {
+            extra_args.push(arg.to_string());
+        }
+    }
+    (compiler_consts, extra_args)
+}
+
+fn load_case_args(args_path: &Path) -> (Vec<String>, Vec<String>) {
+    match fs::read_to_string(args_path) {
+        Ok(content) => split_args(&content),
+        Err(_) => (vec![], vec![]),
+    }
+}
+
+fn py_count_in_dir(py_path: &Path) -> usize {
+    fs::read_dir(py_path.parent().unwrap())
+        .unwrap()
+        .flatten()
+        .filter(|file| file.path().extension().is_some_and(|ext| ext == PY_EXT))
+        .count()
+}
+
+fn cases_for_program(py_path: &Path) -> Vec<BenchCase> {
+    let args_dir = args_dir_for_py(py_path);
+    let exact_args = args_dir
+        .join(py_path.file_name().unwrap())
+        .with_extension(ARGS_EXT);
+    let args_paths = if exact_args.exists() {
+        vec![exact_args]
+    } else if py_count_in_dir(py_path) == 1 && args_dir.exists() {
+        let mut paths: Vec<_> = fs::read_dir(args_dir)
+            .unwrap()
+            .flatten()
+            .map(|file| file.path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == ARGS_EXT))
+            .collect();
+        paths.sort();
+        paths
+    } else {
+        vec![]
+    };
+
+    if args_paths.is_empty() {
+        return vec![BenchCase {
+            name: py_path.file_stem().unwrap().to_string_lossy().into_owned(),
+            py_path: py_path.to_path_buf(),
+            compiler_consts: vec![],
+            extra_args: vec![],
+        }];
+    }
+
+    args_paths
+        .into_iter()
+        .map(|args_path| {
+            let (compiler_consts, extra_args) = load_case_args(&args_path);
+            BenchCase {
+                name: args_path
+                    .file_stem()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
+                py_path: py_path.to_path_buf(),
+                compiler_consts,
+                extra_args,
+            }
+        })
+        .collect()
+}
+
+fn collect_programs(dir: &Path, cases: &mut Vec<BenchCase>) {
     for file in fs::read_dir(dir).unwrap().flatten() {
         let path = file.path();
         if path.is_dir() {
-            collect_programs(&path, paths);
+            collect_programs(&path, cases);
         } else if path.extension().is_some_and(|ext| ext == PY_EXT)
             && path.file_stem().unwrap() != SUPPORT_MOD
         {
-            paths.push(path);
+            cases.extend(cases_for_program(&path));
         }
     }
 }
@@ -235,18 +310,18 @@ fn main() {
     fs::create_dir_all(&generated_dir).unwrap();
     fs::create_dir_all(&res_dir).unwrap();
 
-    let mut paths = vec![];
-    collect_programs(&prog_dir, &mut paths);
-    paths.sort_by(|left, right| {
-        program_family(left, &prog_dir)
-            .cmp(&program_family(right, &prog_dir))
-            .then_with(|| program_size(left).cmp(&program_size(right)))
-            .then_with(|| left.cmp(right))
+    let mut cases = vec![];
+    collect_programs(&prog_dir, &mut cases);
+    cases.sort_by(|left, right| {
+        program_family(&left.py_path, &prog_dir)
+            .cmp(&program_family(&right.py_path, &prog_dir))
+            .then_with(|| program_size(&left.name).cmp(&program_size(&right.name)))
+            .then_with(|| left.name.cmp(&right.name))
     });
 
-    let mut families: Vec<_> = paths
+    let mut families: Vec<_> = cases
         .iter()
-        .map(|path| program_family(path, &prog_dir))
+        .map(|case| program_family(&case.py_path, &prog_dir))
         .collect();
     families.sort();
     families.dedup();
@@ -257,16 +332,16 @@ fn main() {
     let log_dir = bench_dir.join(LOGS);
     fs::create_dir_all(&log_dir).unwrap();
 
-    for path in paths {
-        let name = path.file_stem().unwrap().to_str().unwrap().to_owned();
-        let family = program_family(&path, &prog_dir);
+    for case in cases {
+        let name = case.name.clone();
+        let family = program_family(&case.py_path, &prog_dir);
         let family_generated_dir = generated_dir.join(&family);
         let family_log_dir = log_dir.join(&family);
         fs::create_dir_all(&family_generated_dir).unwrap();
         fs::create_dir_all(&family_log_dir).unwrap();
 
-        let op_path = compile(&path, &family_generated_dir);
-        let extra_args = load_extra_args(&path);
+        let op_path = compile(&case, &family_generated_dir);
+        let extra_args = &case.extra_args;
         let out_path = res_dir.join(format!("{}.{TXT_EXT}", family));
 
         let mut f = OpenOptions::new()
@@ -280,7 +355,7 @@ fn main() {
         let mut totals = (0.0_f64, 0.0_f64, 0_usize);
         for run in 1..=RUNS {
             let (prove_ms, verify_ms, proof_kb) =
-                bench_once(&name, &op_path, &extra_args, &family_log_dir);
+                bench_once(&name, &op_path, extra_args, &family_log_dir);
             totals.0 += prove_ms;
             totals.1 += verify_ms;
             totals.2 += proof_kb;
@@ -307,7 +382,7 @@ fn main() {
         f.write_all(b"\n").unwrap();
 
         if should_write_output_logs {
-            write_output_logs(&name, &op_path, &extra_args, &family_log_dir);
+            write_output_logs(&name, &op_path, extra_args, &family_log_dir);
         }
     }
 }

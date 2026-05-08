@@ -450,7 +450,9 @@ class TestUnsupported(unittest.TestCase):
 
     def test_for_variable_range_raises(self):
         with self.assertRaises(TypeError):
-            compile_first_stage("n = 3\nfor i in range(n):\n    x = i")
+            compile_first_stage(
+                "from starisc import private\nn = private(0)\nfor i in range(n):\n    x = i"
+            )
 
     def test_for_loop_index_in_expression(self):
         self.assertEqual(
@@ -471,6 +473,27 @@ class TestUnsupported(unittest.TestCase):
                 Op("ADD", "acc", "acc", "t8"),
             ],
         )
+
+    def test_for_loop_const_override_bound(self):
+        self.assertEqual(
+            compile_first_stage(
+                'N = const("N")\nacc = 0\nfor i in range(N):\n    acc = acc + 1',
+                {"N": 3},
+            ),
+            [
+                Op("SET", "acc", "0"),
+                Op("SET", "t0", "1"),
+                Op("ADD", "acc", "acc", "t0"),
+                Op("SET", "t1", "1"),
+                Op("ADD", "acc", "acc", "t1"),
+                Op("SET", "t2", "1"),
+                Op("ADD", "acc", "acc", "t2"),
+            ],
+        )
+
+    def test_missing_const_raises(self):
+        with self.assertRaises(TypeError):
+            compile_first_stage('N = const("N")')
 
     def test_and_condition_raises(self):
         with self.assertRaises(NotImplementedError):

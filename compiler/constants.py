@@ -11,6 +11,7 @@ OP_SET = "SET"
 OP_SUB = "SUB"
 
 FUNC_CLAIM = "claim"
+FUNC_CONST = "const"
 FUNC_PRIVATE = "private"
 FUNC_PUBLIC = "public"
 FUNC_RANGE = "range"
