@@ -1,4 +1,7 @@
-use crate::instruction::Instruction;
+use crate::instruction::{
+    Instruction, OP_ADD, OP_ASSERT_EQ, OP_JZ, OP_LT, OP_MOD, OP_MUL, OP_READ_PRIV, OP_READ_PUB,
+    OP_SET, OP_SUB,
+};
 use std::fmt;
 use std::fs;
 
@@ -102,58 +105,58 @@ pub fn parse_str(input: &str) -> Result<Vec<Instruction>, ParseError> {
         let opcode = tokens[0];
         let argc = tokens.len() - 1;
         let instr = match opcode {
-            "SET" => {
-                expect_argc("SET", 2, argc, line_num)?;
+            OP_SET => {
+                expect_argc(OP_SET, 2, argc, line_num)?;
                 let dest = parse_dest_register(tokens[1], line_num)?;
                 let val = parse_val(tokens[2], line_num)?;
                 Instruction::Set { dest, val }
             }
-            "READ_PRIV" => {
-                expect_argc("READ_PRIV", 2, argc, line_num)?;
+            OP_READ_PRIV => {
+                expect_argc(OP_READ_PRIV, 2, argc, line_num)?;
                 let dest = parse_dest_register(tokens[1], line_num)?;
                 let index = parse_input_index(tokens[2], line_num)?;
                 Instruction::ReadPriv { dest, index }
             }
-            "READ_PUB" => {
-                expect_argc("READ_PUB", 2, argc, line_num)?;
+            OP_READ_PUB => {
+                expect_argc(OP_READ_PUB, 2, argc, line_num)?;
                 let dest = parse_dest_register(tokens[1], line_num)?;
                 let index = parse_input_index(tokens[2], line_num)?;
                 Instruction::ReadPub { dest, index }
             }
-            "ASSERT_EQ" => {
-                expect_argc("ASSERT_EQ", 2, argc, line_num)?;
+            OP_ASSERT_EQ => {
+                expect_argc(OP_ASSERT_EQ, 2, argc, line_num)?;
                 Instruction::AssertEq {
                     r1: parse_register(tokens[1], line_num)?,
                     r2: parse_register(tokens[2], line_num)?,
                 }
             }
-            "ADD" => {
-                expect_argc("ADD", 3, argc, line_num)?;
+            OP_ADD => {
+                expect_argc(OP_ADD, 3, argc, line_num)?;
                 let (dest, src1, src2) = parse_arith_args(&tokens, line_num)?;
                 Instruction::Add { dest, src1, src2 }
             }
-            "SUB" => {
-                expect_argc("SUB", 3, argc, line_num)?;
+            OP_SUB => {
+                expect_argc(OP_SUB, 3, argc, line_num)?;
                 let (dest, src1, src2) = parse_arith_args(&tokens, line_num)?;
                 Instruction::Sub { dest, src1, src2 }
             }
-            "MUL" => {
-                expect_argc("MUL", 3, argc, line_num)?;
+            OP_MUL => {
+                expect_argc(OP_MUL, 3, argc, line_num)?;
                 let (dest, src1, src2) = parse_arith_args(&tokens, line_num)?;
                 Instruction::Mul { dest, src1, src2 }
             }
-            "MOD" => {
-                expect_argc("MOD", 3, argc, line_num)?;
+            OP_MOD => {
+                expect_argc(OP_MOD, 3, argc, line_num)?;
                 let (dest, src1, src2) = parse_arith_args(&tokens, line_num)?;
                 Instruction::Mod { dest, src1, src2 }
             }
-            "LT" => {
-                expect_argc("LT", 3, argc, line_num)?;
+            OP_LT => {
+                expect_argc(OP_LT, 3, argc, line_num)?;
                 let (dest, src1, src2) = parse_arith_args(&tokens, line_num)?;
                 Instruction::Lt { dest, src1, src2 }
             }
-            "JZ" => {
-                expect_argc("JZ", 2, argc, line_num)?;
+            OP_JZ => {
+                expect_argc(OP_JZ, 2, argc, line_num)?;
                 Instruction::Jz {
                     cond: parse_register(tokens[1], line_num)?,
                     offset: parse_offset(tokens[2], line_num)?,

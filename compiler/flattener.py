@@ -1,7 +1,27 @@
 import ast
+
+from .constants import (
+    BOOL_ONE,
+    FUNC_CLAIM,
+    FUNC_PRIVATE,
+    FUNC_PUBLIC,
+    FUNC_RANGE,
+    OP_ADD,
+    OP_ASSERT_EQ,
+    OP_CLAIM,
+    OP_JZ,
+    OP_LT,
+    OP_MOD,
+    OP_MUL,
+    OP_READ_PRIV,
+    OP_READ_PUB,
+    OP_SET,
+    OP_SUB,
+    ZERO_REGISTER,
+)
 from .op import Op
 
-BINOP_MAP = {ast.Add: "ADD", ast.Sub: "SUB", ast.Mult: "MUL", ast.Mod: "MOD"}
+BINOP_MAP = {ast.Add: OP_ADD, ast.Sub: OP_SUB, ast.Mult: OP_MUL, ast.Mod: OP_MOD}
 
 
 class Flattener(ast.NodeVisitor):
@@ -31,14 +51,14 @@ class Flattener(ast.NodeVisitor):
         return t
 
     def _negate_lt(self, left, right):
-        lt = self._emit_binary("LT", left, right)
+        lt = self._emit_binary(OP_LT, left, right)
         return self._negate_bool(lt)
 
     def _negate_bool(self, value):
         one = self._incr_temp()
-        self._ops.append(Op("SET", one, "1"))
+        self._ops.append(Op(OP_SET, one, BOOL_ONE))
         t = self._incr_temp()
-        self._ops.append(Op("SUB", t, one, value))
+        self._ops.append(Op(OP_SUB, t, one, value))
         return t
 
     def _const_int(self, node):
@@ -98,24 +118,24 @@ class Flattener(ast.NodeVisitor):
 
                 match op:
                     case ast.Lt():
-                        return self._emit_value_op("LT", lhs, rhs)
+                        return self._emit_value_op(OP_LT, lhs, rhs)
                     case ast.Gt():
-                        return self._emit_value_op("LT", rhs, lhs)
+                        return self._emit_value_op(OP_LT, rhs, lhs)
                     case ast.LtE():
-                        return self._negate_bool(self._emit_value_op("LT", rhs, lhs))
+                        return self._negate_bool(self._emit_value_op(OP_LT, rhs, lhs))
                     case ast.GtE():
-                        return self._negate_bool(self._emit_value_op("LT", lhs, rhs))
+                        return self._negate_bool(self._emit_value_op(OP_LT, lhs, rhs))
                     case ast.Eq():
-                        left_lt_right = self._emit_value_op("LT", lhs, rhs)
-                        right_lt_left = self._emit_value_op("LT", rhs, lhs)
+                        left_lt_right = self._emit_value_op(OP_LT, lhs, rhs)
+                        right_lt_left = self._emit_value_op(OP_LT, rhs, lhs)
                         not_equal = self._emit_value_op(
-                            "ADD", left_lt_right, right_lt_left
+                            OP_ADD, left_lt_right, right_lt_left
                         )
                         return self._negate_bool(not_equal)
                     case ast.NotEq():
-                        left_lt_right = self._emit_value_op("LT", lhs, rhs)
-                        right_lt_left = self._emit_value_op("LT", rhs, lhs)
-                        return self._emit_value_op("ADD", left_lt_right, right_lt_left)
+                        left_lt_right = self._emit_value_op(OP_LT, lhs, rhs)
+                        right_lt_left = self._emit_value_op(OP_LT, rhs, lhs)
+                        return self._emit_value_op(OP_ADD, left_lt_right, right_lt_left)
                     case _:
                         raise NotImplementedError(
                             f"unsupported condition: {ast.dump(node, include_attributes=False)}"
@@ -123,7 +143,7 @@ class Flattener(ast.NodeVisitor):
 
             case _:
                 value = self._flatten_expr(node)
-                return self._emit_value_op("LT", "r0", value)
+                return self._emit_value_op(OP_LT, ZERO_REGISTER, value)
 
     def _flatten_expr(self, node):
         match node:
@@ -132,7 +152,7 @@ class Flattener(ast.NodeVisitor):
 
             case ast.Constant(value=v):
                 t = self._incr_temp()
-                self._ops.append(Op("SET", t, str(v)))
+                self._ops.append(Op(OP_SET, t, str(v)))
                 return t
 
             # (base ** exp) % mod -> perform MOD after each MUL
@@ -151,20 +171,20 @@ class Flattener(ast.NodeVisitor):
                 m = self._flatten_expr(mod_node)
                 if exp == 0:
                     t = self._incr_temp()
-                    self._ops.append(Op("SET", t, "1"))
+                    self._ops.append(Op(OP_SET, t, BOOL_ONE))
                     return t
                 res = b
                 bits = bin(exp)[2:]
                 for bit in bits[1:]:
                     sq = self._incr_temp()
-                    self._ops.append(Op("MUL", sq, res, res))
+                    self._ops.append(Op(OP_MUL, sq, res, res))
                     sq_mod = self._incr_temp()
-                    self._ops.append(Op("MOD", sq_mod, sq, m))
-                    if bit == "1":
+                    self._ops.append(Op(OP_MOD, sq_mod, sq, m))
+                    if bit == BOOL_ONE:
                         mul = self._incr_temp()
-                        self._ops.append(Op("MUL", mul, sq_mod, b))
+                        self._ops.append(Op(OP_MUL, mul, sq_mod, b))
                         mul_mod = self._incr_temp()
-                        self._ops.append(Op("MOD", mul_mod, mul, m))
+                        self._ops.append(Op(OP_MOD, mul_mod, mul, m))
                         res = mul_mod
                     else:
                         res = sq_mod
@@ -181,17 +201,17 @@ class Flattener(ast.NodeVisitor):
                 b = self._flatten_expr(base)
                 if exp == 0:
                     t = self._incr_temp()
-                    self._ops.append(Op("SET", t, "1"))
+                    self._ops.append(Op(OP_SET, t, BOOL_ONE))
                     return t
                 # binary exponentiation
                 bits = bin(exp)[2:]
                 res = b
                 for bit in bits[1:]:
                     sq = self._incr_temp()
-                    self._ops.append(Op("MUL", sq, res, res))
-                    if bit == "1":
+                    self._ops.append(Op(OP_MUL, sq, res, res))
+                    if bit == BOOL_ONE:
                         mul = self._incr_temp()
-                        self._ops.append(Op("MUL", mul, sq, b))
+                        self._ops.append(Op(OP_MUL, mul, sq, b))
                         res = mul
                     else:
                         res = sq
@@ -204,7 +224,7 @@ class Flattener(ast.NodeVisitor):
                 return self._emit_binary(opcode, left, right)
 
             case ast.Compare(left=left, ops=[ast.Lt()], comparators=[right]):
-                return self._emit_binary("LT", left, right)
+                return self._emit_binary(OP_LT, left, right)
 
             # lte: a <= b <-> 1 - (b < a)
             case ast.Compare(left=left, ops=[ast.LtE()], comparators=[right]):
@@ -212,7 +232,7 @@ class Flattener(ast.NodeVisitor):
 
             # convert gt to lt
             case ast.Compare(left=left, ops=[ast.Gt()], comparators=[right]):
-                return self._emit_binary("LT", right, left)
+                return self._emit_binary(OP_LT, right, left)
 
             case ast.Compare(left=left, ops=[ast.GtE()], comparators=[right]):
                 return self._negate_lt(left, right)
@@ -220,11 +240,11 @@ class Flattener(ast.NodeVisitor):
             case ast.Call(
                 func=ast.Name(id=func_name),
                 args=[arg],
-            ) if func_name in ("private", "public"):
+            ) if func_name in (FUNC_PRIVATE, FUNC_PUBLIC):
                 slot = self._const_int(arg)
                 if slot is None or slot < 0:
                     raise TypeError(f"{func_name} slot must be a non-negative integer")
-                opcode = "READ_PRIV" if func_name == "private" else "READ_PUB"
+                opcode = OP_READ_PRIV if func_name == FUNC_PRIVATE else OP_READ_PUB
                 t = self._incr_temp()
                 self._ops.append(Op(opcode, t, str(slot)))
                 return t
@@ -244,7 +264,7 @@ class Flattener(ast.NodeVisitor):
             return
         if prev_ops_len == len(self._ops):
             # no op was emitted -> SET
-            self._ops.append(Op("SET", dest, result))
+            self._ops.append(Op(OP_SET, dest, result))
             if const_value is not None:
                 self._consts[dest] = const_value
             else:
@@ -278,12 +298,12 @@ class Flattener(ast.NodeVisitor):
         )
 
         if else_ops:
-            self._ops.append(Op("JZ", condition, str(len(then_ops) + 1)))
+            self._ops.append(Op(OP_JZ, condition, str(len(then_ops) + 1)))
             self._ops.extend(then_ops)
-            self._ops.append(Op("JZ", "r0", str(len(else_ops))))
+            self._ops.append(Op(OP_JZ, ZERO_REGISTER, str(len(else_ops))))
             self._ops.extend(else_ops)
         else:
-            self._ops.append(Op("JZ", condition, str(len(then_ops))))
+            self._ops.append(Op(OP_JZ, condition, str(len(then_ops))))
             self._ops.extend(then_ops)
 
         assigned_in_branches = then_assigned | else_assigned
@@ -297,14 +317,18 @@ class Flattener(ast.NodeVisitor):
     def _parse_range(self, node):
         match node:
             case ast.Call(
-                func=ast.Name(id="range"),
+                func=ast.Name(id=func_name),
                 args=[ast.Constant(value=end)],
-            ) if isinstance(end, int):
+            ) if func_name == FUNC_RANGE and isinstance(end, int):
                 return 0, end
             case ast.Call(
-                func=ast.Name(id="range"),
+                func=ast.Name(id=func_name),
                 args=[ast.Constant(value=start), ast.Constant(value=end)],
-            ) if isinstance(start, int) and isinstance(end, int):
+            ) if (
+                func_name == FUNC_RANGE
+                and isinstance(start, int)
+                and isinstance(end, int)
+            ):
                 return start, end
             case _:
                 return None
@@ -337,9 +361,12 @@ class Flattener(ast.NodeVisitor):
 
     def visit_Expr(self, node):
         match node.value:
-            case ast.Call(func=ast.Name(id="claim"), args=[ast.Name(id=name)]):
+            case ast.Call(
+                func=ast.Name(id=func_name),
+                args=[ast.Name(id=name)],
+            ) if func_name == FUNC_CLAIM:
                 # prevents DCE from eliminating the variable. CLAIM op is not emitted to VM
-                self._ops.append(Op("CLAIM", name))
+                self._ops.append(Op(OP_CLAIM, name))
             case _:
                 raise NotImplementedError(
                     f"unsupported expression statement at line {node.lineno}"
@@ -354,4 +381,4 @@ class Flattener(ast.NodeVisitor):
 
         lhs = self._flatten_expr(test.left)
         rhs = self._flatten_expr(test.comparators[0])
-        self._ops.append(Op("ASSERT_EQ", lhs, rhs))
+        self._ops.append(Op(OP_ASSERT_EQ, lhs, rhs))

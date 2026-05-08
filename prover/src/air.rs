@@ -30,8 +30,7 @@ impl Air for VmAir {
         let trace_len = pub_inputs.trace_len;
         let has_result_constraint = pub_inputs.has_result_constraint();
 
-        // new(1) is the default constraint. use cyclic for periodic/instruction-specific constraints
-        // new(2) if the entire column has a degree 2 constraint
+        // cyclic degrees account for periodic instruction columns
         let cyclic = |base| TransitionConstraintDegree::with_cycles(base, vec![trace_len]);
         let mut degrees = vec![TransitionConstraintDegree::new(1); NUM_CONSTRAINTS];
         for (j, degree) in degrees.iter_mut().enumerate().take(NUM_REGISTERS) {
@@ -61,7 +60,7 @@ impl Air for VmAir {
         if pub_inputs.has_assert_eq {
             degrees[ASSERT_EQ_CON] = cyclic(if pub_inputs.has_taken_jz { 2 } else { 1 });
         }
-        // branch degrees depend on whether taken/not-taken rows appear in this trace
+        // branch degrees depend on whether jz_taken/not-jz_taken rows appear in this trace
         let has_taken_branch = pub_inputs.has_taken_jz;
         let has_fallthrough_branch = pub_inputs.has_not_taken_jz;
         degrees[ACTIVE_BOOL_CON] = if has_taken_branch {
@@ -119,92 +118,89 @@ impl Air for VmAir {
     ) {
         let curr_row = frame.current();
         let next_row = frame.next();
-        let curr_pub_in = periodic_values;
+        let instr_row = periodic_values;
 
-        let next_src1 = next_row[SRC1_COL];
-        let next_src2 = next_row[SRC2_COL];
-        let next_res = next_row[RES_COL];
-        let next_quot = next_row[QUOT_COL];
+        let src1_val = next_row[SRC1_COL];
+        let src2_val = next_row[SRC2_COL];
+        let res_val = next_row[RES_COL];
+        let quot_val = next_row[QUOT_COL];
         let active = curr_row[ACTIVE_COL];
-        let cond = next_src1;
-        let skip_countdown = curr_row[SKIP_COUNTDOWN_COL];
-        let skip_countdown_inv = curr_row[SKIP_COUNTDOWN_INV_COL];
-        let two64 = E::from(Felt::from(u64::MAX)) + E::ONE;
-        let mut wrap_bit_sum = E::ZERO;
+        let jz_cond = src1_val;
+        let skip = curr_row[SKIP_COUNTDOWN_COL];
+        let skip_inv = curr_row[SKIP_COUNTDOWN_INV_COL];
+        let two_64 = E::from(Felt::from(u64::MAX)) + E::ONE;
+        let mut wrap_sum = E::ZERO;
         for i in 0..NUM_RANGE_BITS {
-            wrap_bit_sum += E::from(Felt::from(1u64 << i)) * next_row[WRAP_BITS_BASE + i];
+            wrap_sum += E::from(Felt::from(1u64 << i)) * next_row[WRAP_BITS_BASE + i];
         }
-        // This vanishes on the base trace domain because `P_IS_NOP` is boolean there.
-        // On the LDE domain it keeps Winterfell's exact degree checks tied to public
-        // program shape instead of private branch/source values.
-        let degree_anchor = curr_pub_in[P_IS_NOP] * (curr_pub_in[P_IS_NOP] - E::ONE);
-        let degree_31 = degree_anchor;
-        let degree_62 = degree_31 * next_row[RANGE_BITS_BASE];
-        let degree_93 = degree_62 * next_row[WRAP_BITS_BASE];
+        // pad degrees without adding trace constraints
+        let degree_pad = instr_row[P_IS_NOP] * (instr_row[P_IS_NOP] - E::ONE);
+        let degree_pad_1 = degree_pad;
+        let degree_pad_2 = degree_pad_1 * next_row[RANGE_BITS_BASE];
+        let degree_pad_3 = degree_pad_2 * next_row[WRAP_BITS_BASE];
 
-        // all reg except dest should not change. dest should be next_res
+        // all reg except dest should not change. dest should be res_val
         for j in 0..NUM_REGISTERS {
             result[j] = (next_row[j] - curr_row[j])
-                - active * curr_pub_in[P_RES_BASE + j] * (next_res - curr_row[j]);
+                - active * instr_row[P_RES_BASE + j] * (res_val - curr_row[j]);
             if self.public_inputs.has_taken_jz && self.public_inputs.dest_mask[j] {
-                result[j] += degree_62;
+                result[j] += degree_pad_2;
             }
         }
 
-        let is_add = curr_pub_in[P_IS_ADD];
-        let is_sub = curr_pub_in[P_IS_SUB];
-        let is_mul = curr_pub_in[P_IS_MUL];
-        let is_lt = curr_pub_in[P_IS_LT];
-        let is_mod = curr_pub_in[P_IS_MOD];
-        let is_jz = curr_pub_in[P_IS_JZ];
-        let is_assert_eq = curr_pub_in[P_IS_ASSERT_EQ];
-        let is_range_checked_res =
-            curr_pub_in[P_IS_SET] + is_add + is_sub + is_mul + is_assert_eq + is_jz;
+        let is_add = instr_row[P_IS_ADD];
+        let is_sub = instr_row[P_IS_SUB];
+        let is_mul = instr_row[P_IS_MUL];
+        let is_lt = instr_row[P_IS_LT];
+        let is_mod = instr_row[P_IS_MOD];
+        let is_jz = instr_row[P_IS_JZ];
+        let is_assert_eq = instr_row[P_IS_ASSERT_EQ];
+        let checks_res_range =
+            instr_row[P_IS_SET] + is_add + is_sub + is_mul + is_assert_eq + is_jz;
 
         result[RES_COL] = active
-            * (curr_pub_in[P_IS_SET] * (next_res - curr_pub_in[P_CONST])
-                + curr_pub_in[P_IS_READ_PUB] * (next_res - curr_pub_in[P_CONST])
-                + is_add * (next_res + wrap_bit_sum * two64 - next_src1 - next_src2)
-                + is_sub * (next_res - next_src1 + next_src2 - wrap_bit_sum * two64)
-                + is_mul * (next_res + wrap_bit_sum * two64 - next_src1 * next_src2)
-                + is_assert_eq * (next_res - E::ONE)
-                + is_jz * (next_res - E::ONE));
+            * (instr_row[P_IS_SET] * (res_val - instr_row[P_CONST])
+                + instr_row[P_IS_READ_PUB] * (res_val - instr_row[P_CONST])
+                + is_add * (res_val + wrap_sum * two_64 - src1_val - src2_val)
+                + is_sub * (res_val - src1_val + src2_val - wrap_sum * two_64)
+                + is_mul * (res_val + wrap_sum * two_64 - src1_val * src2_val)
+                + is_assert_eq * (res_val - E::ONE)
+                + is_jz * (res_val - E::ONE));
         if self.public_inputs.has_taken_jz {
             if self.public_inputs.has_mul {
-                result[RES_COL] += degree_93;
+                result[RES_COL] += degree_pad_3;
             } else if self.public_inputs.has_result_constraint() {
-                result[RES_COL] += degree_62;
+                result[RES_COL] += degree_pad_2;
             }
         }
 
         // next[src1/2] should be the dot product of their reg selectors and curr regs
-        let (mut exp_s1, mut exp_s2) = (E::ZERO, E::ZERO);
+        let (mut expected_src1, mut expected_src2) = (E::ZERO, E::ZERO);
         for j in 0..NUM_REGISTERS {
-            exp_s1 += curr_pub_in[P_SRC1_BASE + j] * curr_row[j];
-            exp_s2 += curr_pub_in[P_SRC2_BASE + j] * curr_row[j];
+            expected_src1 += instr_row[P_SRC1_BASE + j] * curr_row[j];
+            expected_src2 += instr_row[P_SRC2_BASE + j] * curr_row[j];
         }
-        result[SRC1_COL] = next_src1 - exp_s1;
-        result[SRC2_COL] = next_src2 - exp_s2;
+        result[SRC1_COL] = src1_val - expected_src1;
+        result[SRC2_COL] = src2_val - expected_src2;
         if self.public_inputs.has_nonzero_src1 {
-            result[SRC1_COL] += degree_31;
+            result[SRC1_COL] += degree_pad_1;
         }
         if self.public_inputs.has_nonzero_src2 {
-            result[SRC2_COL] += degree_31;
+            result[SRC2_COL] += degree_pad_1;
         }
-        result[ASSERT_EQ_CON] =
-            active * is_assert_eq * (next_src1 - next_src2 - (next_res - E::ONE));
+        result[ASSERT_EQ_CON] = active * is_assert_eq * (src1_val - src2_val - (res_val - E::ONE));
         if self.public_inputs.has_taken_jz && self.public_inputs.has_assert_eq {
-            result[ASSERT_EQ_CON] += degree_62;
+            result[ASSERT_EQ_CON] += degree_pad_2;
         }
         if self.public_inputs.has_mod {
-            result[QUOT_COL] = (E::ONE - is_mod) * (next_quot - E::ONE);
+            result[QUOT_COL] = (E::ONE - is_mod) * (quot_val - E::ONE);
             result[MOD_REL_CON] =
-                active * is_mod * (next_src1 - (next_src2 * (next_quot - E::ONE) + next_res));
+                active * is_mod * (src1_val - (src2_val * (quot_val - E::ONE) + res_val));
             if self.public_inputs.has_taken_jz {
-                result[MOD_REL_CON] += degree_93;
+                result[MOD_REL_CON] += degree_pad_3;
             }
         } else {
-            result[QUOT_COL] = next_quot - E::ONE;
+            result[QUOT_COL] = quot_val - E::ONE;
             result[MOD_REL_CON] = E::ZERO;
         }
 
@@ -217,73 +213,73 @@ impl Air for VmAir {
         }
 
         // lt res should be 0 or 1
-        result[LT_RES_BOOL_CON] = active * is_lt * next_res * (next_res - E::ONE);
+        result[LT_RES_BOOL_CON] = active * is_lt * res_val * (res_val - E::ONE);
 
         let has_taken_branch = self.public_inputs.has_taken_jz;
         let has_fallthrough_branch = self.public_inputs.has_not_taken_jz;
 
+        // inactive rows are skipped instructions after a taken JZ
         result[ACTIVE_BOOL_CON] = if has_taken_branch {
             active * (active - E::ONE)
         } else {
             active - E::ONE
         };
         if has_taken_branch {
-            result[ACTIVE_BOOL_CON] += degree_31;
+            result[ACTIVE_BOOL_CON] += degree_pad_1;
         }
         result[COND_BOOL_CON] = if has_fallthrough_branch {
-            active * is_jz * cond * (cond - E::ONE)
+            active * is_jz * jz_cond * (jz_cond - E::ONE)
         } else {
-            active * is_jz * cond
+            active * is_jz * jz_cond
         };
         if has_taken_branch && has_fallthrough_branch {
-            result[COND_BOOL_CON] += degree_93;
+            result[COND_BOOL_CON] += degree_pad_3;
         } else if has_fallthrough_branch {
-            result[COND_BOOL_CON] += degree_62;
+            result[COND_BOOL_CON] += degree_pad_2;
         }
         result[COND_MATCH_CON] = E::ZERO;
         if has_taken_branch {
-            result[SKIP_ACTIVE_ZERO_CON] = active * skip_countdown;
-            result[SKIP_COUNTDOWN_INV_CON] =
-                (E::ONE - active) * (skip_countdown * skip_countdown_inv - E::ONE);
-            result[SKIP_ACTIVE_ZERO_CON] += degree_31;
-            result[SKIP_COUNTDOWN_INV_CON] += degree_62;
+            result[SKIP_ACTIVE_ZERO_CON] = active * skip;
+            result[SKIP_COUNTDOWN_INV_CON] = (E::ONE - active) * (skip * skip_inv - E::ONE);
+            result[SKIP_ACTIVE_ZERO_CON] += degree_pad_1;
+            result[SKIP_COUNTDOWN_INV_CON] += degree_pad_2;
         } else {
             result[SKIP_ACTIVE_ZERO_CON] = E::ZERO;
             result[SKIP_COUNTDOWN_INV_CON] = E::ZERO;
         }
-        let taken = active * is_jz * (E::ONE - cond);
+        let jz_taken = active * is_jz * (E::ONE - jz_cond);
         result[SKIP_COUNTDOWN_CON] = next_row[SKIP_COUNTDOWN_COL]
-            - (taken * curr_pub_in[P_OFFSET] + (E::ONE - active) * (skip_countdown - E::ONE));
+            - (jz_taken * instr_row[P_OFFSET] + (E::ONE - active) * (skip - E::ONE));
         if has_taken_branch {
-            result[SKIP_COUNTDOWN_CON] += degree_93;
+            result[SKIP_COUNTDOWN_CON] += degree_pad_3;
         } else if has_fallthrough_branch {
-            result[SKIP_COUNTDOWN_CON] += degree_62;
+            result[SKIP_COUNTDOWN_CON] += degree_pad_2;
         }
 
         // combined reconstruction. lt rows decompose comparison diff, mod rows decompose src2-res-1,
         // and all other rows decompose res.
-        let exp_diff = next_res * (next_src2 - next_src1 - E::ONE)
-            + (E::ONE - next_res) * (next_src1 - next_src2);
-        let mod_diff = next_src2 - next_res - E::ONE;
-        let mut bit_sum = E::ZERO;
+        let lt_diff =
+            res_val * (src2_val - src1_val - E::ONE) + (E::ONE - res_val) * (src1_val - src2_val);
+        let mod_diff = src2_val - res_val - E::ONE;
+        let mut range_sum = E::ZERO;
         for i in 0..NUM_RANGE_BITS {
-            bit_sum += E::from(Felt::from(1u64 << i)) * next_row[RANGE_BITS_BASE + i];
+            range_sum += E::from(Felt::from(1u64 << i)) * next_row[RANGE_BITS_BASE + i];
         }
         result[RANGE_RECON_CON] = active
-            * (is_lt * (exp_diff - bit_sum)
-                + is_mod * (mod_diff - bit_sum)
-                + is_range_checked_res * (next_res - bit_sum));
+            * (is_lt * (lt_diff - range_sum)
+                + is_mod * (mod_diff - range_sum)
+                + checks_res_range * (res_val - range_sum));
         if self.public_inputs.has_taken_jz {
             if self.public_inputs.has_lt {
-                result[LT_RES_BOOL_CON] += degree_93;
-                result[RANGE_RECON_CON] += degree_93;
+                result[LT_RES_BOOL_CON] += degree_pad_3;
+                result[RANGE_RECON_CON] += degree_pad_3;
             } else if self.public_inputs.has_mod || self.public_inputs.has_result_constraint() {
-                result[RANGE_RECON_CON] += degree_62;
+                result[RANGE_RECON_CON] += degree_pad_2;
             }
         }
     }
 
-    // all trace cols should be 0 for row 0
+    // initial row has zero registers and active execution
     fn get_assertions(&self) -> Vec<Assertion<Felt>> {
         let mut assertions: Vec<_> = (0..TRACE_WIDTH)
             .filter(|&col| col != ACTIVE_COL)

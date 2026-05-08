@@ -4,18 +4,41 @@ use std::path::Path;
 use std::process::Command;
 
 const RUNS: usize = 5;
+const PYTHON: &str = "python3";
+const COMPILER: &str = "compiler";
+const STARISC: &str = "starisc";
+const PROVE: &str = "prove";
+const VERIFY: &str = "verify";
+const OUT_DIR: &str = "--out-dir";
+const OUTPUT: &str = "--output";
+const PROOF_FLAG: &str = "--proof";
+const PRIVATE: &str = "--private";
+const AIR_OUTPUT: &str = "--air-output";
+const PROVE_MS: &str = "prove_ms=";
+const VERIFY_MS: &str = "verify_ms=";
+const PY_EXT: &str = "py";
+const OP_EXT: &str = "op";
+const ARGS_EXT: &str = "args";
+const PROOF_EXT: &str = "proof";
+const TXT_EXT: &str = "txt";
+const AIR_EXT: &str = "air.txt";
+const PROGRAMS: &str = "programs";
+const GENERATED: &str = "generated";
+const RESULTS: &str = "results";
+const LOGS: &str = "logs";
+const SUPPORT_MOD: &str = "starisc";
 
 fn project_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap()
 }
 
 fn compile(path: &Path, out_dir: &Path) -> String {
-    let status = Command::new("python3")
+    let status = Command::new(PYTHON)
         .args([
             "-m",
-            "compiler",
+            COMPILER,
             path.to_str().unwrap(),
-            "--out-dir",
+            OUT_DIR,
             out_dir.to_str().unwrap(),
         ])
         .current_dir(project_root())
@@ -25,7 +48,7 @@ fn compile(path: &Path, out_dir: &Path) -> String {
     assert!(status.success(), "compiler failed on {:?}", path);
     out_dir
         .join(format!(
-            "{}.op",
+            "{}.{OP_EXT}",
             path.file_stem().unwrap().to_str().unwrap()
         ))
         .to_string_lossy()
@@ -33,7 +56,7 @@ fn compile(path: &Path, out_dir: &Path) -> String {
 }
 
 fn load_extra_args(py_path: &Path) -> Vec<String> {
-    let args_path = py_path.with_extension("args");
+    let args_path = py_path.with_extension(ARGS_EXT);
     match fs::read_to_string(&args_path) {
         Ok(content) => content.split_whitespace().map(String::from).collect(),
         Err(_) => vec![],
@@ -43,7 +66,7 @@ fn load_extra_args(py_path: &Path) -> Vec<String> {
 fn starisc_bin() -> std::path::PathBuf {
     let mut path = std::env::current_exe().unwrap();
     path.pop();
-    path.push("starisc");
+    path.push(STARISC);
     path
 }
 
@@ -61,13 +84,13 @@ fn bench_once(
     extra_args: &[String],
     log_dir: &Path,
 ) -> (f64, f64, usize) {
-    let proof_path = log_dir.join(format!("{}.proof", name));
+    let proof_path = log_dir.join(format!("{}.{PROOF_EXT}", name));
     let bin = starisc_bin();
 
     let mut prove_cmd = Command::new(&bin);
-    prove_cmd.arg("prove").arg(op_path);
+    prove_cmd.arg(PROVE).arg(op_path);
     prove_cmd.args(extra_args);
-    prove_cmd.args(["--output", proof_path.to_str().unwrap()]);
+    prove_cmd.args([OUTPUT, proof_path.to_str().unwrap()]);
 
     let output = prove_cmd.output().unwrap();
 
@@ -78,13 +101,13 @@ fn bench_once(
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let proof_ms = parse_elapsed_ms(&output.stdout, "prove_ms=");
+    let proof_ms = parse_elapsed_ms(&output.stdout, PROVE_MS);
     let proof_kb = fs::metadata(&proof_path).unwrap().len() as usize / 1024;
 
     let mut verify_extra = vec![];
     let mut i = 0;
     while i < extra_args.len() {
-        if extra_args[i] == "--private" {
+        if extra_args[i] == PRIVATE {
             i += 2;
             continue;
         }
@@ -93,8 +116,8 @@ fn bench_once(
     }
 
     let mut verify_cmd = Command::new(&bin);
-    verify_cmd.arg("verify").arg(op_path);
-    verify_cmd.args(["--proof", proof_path.to_str().unwrap()]);
+    verify_cmd.arg(VERIFY).arg(op_path);
+    verify_cmd.args([PROOF_FLAG, proof_path.to_str().unwrap()]);
     verify_cmd.args(&verify_extra);
 
     let output = verify_cmd.output().unwrap();
@@ -106,21 +129,21 @@ fn bench_once(
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let verify_ms = parse_elapsed_ms(&output.stdout, "verify_ms=");
+    let verify_ms = parse_elapsed_ms(&output.stdout, VERIFY_MS);
 
     (proof_ms, verify_ms, proof_kb)
 }
 
 fn write_air_log(name: &str, op_path: &str, extra_args: &[String], log_dir: &Path) {
-    let proof_path = log_dir.join(format!("{}.proof", name));
-    let air_path = log_dir.join(format!("{}.air.txt", name));
+    let proof_path = log_dir.join(format!("{}.{PROOF_EXT}", name));
+    let air_path = log_dir.join(format!("{}.{AIR_EXT}", name));
     let bin = starisc_bin();
 
     let mut cmd = Command::new(&bin);
-    cmd.arg("prove").arg(op_path);
+    cmd.arg(PROVE).arg(op_path);
     cmd.args(extra_args);
-    cmd.args(["--output", proof_path.to_str().unwrap()]);
-    cmd.args(["--air-output", air_path.to_str().unwrap()]);
+    cmd.args([OUTPUT, proof_path.to_str().unwrap()]);
+    cmd.args([AIR_OUTPUT, air_path.to_str().unwrap()]);
 
     let output = cmd.output().unwrap();
 
@@ -133,11 +156,11 @@ fn write_air_log(name: &str, op_path: &str, extra_args: &[String], log_dir: &Pat
 }
 
 fn main() {
-    let write_air_output = std::env::args().skip(1).any(|arg| arg == "--air-output");
+    let write_air_output = std::env::args().skip(1).any(|arg| arg == AIR_OUTPUT);
     let bench_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let prog_dir = bench_dir.join("programs");
-    let generated_dir = bench_dir.join("generated");
-    let res_dir = bench_dir.join("results");
+    let prog_dir = bench_dir.join(PROGRAMS);
+    let generated_dir = bench_dir.join(GENERATED);
+    let res_dir = bench_dir.join(RESULTS);
     fs::create_dir_all(&generated_dir).unwrap();
     fs::create_dir_all(&res_dir).unwrap();
 
@@ -146,19 +169,19 @@ fn main() {
         .flatten()
         .map(|file| file.path())
         .filter(|path| {
-            path.extension().is_some_and(|ext| ext == "py")
-                && path.file_stem().unwrap() != "starisc"
+            path.extension().is_some_and(|ext| ext == PY_EXT)
+                && path.file_stem().unwrap() != SUPPORT_MOD
         })
         .collect();
 
-    let log_dir = bench_dir.join("logs");
+    let log_dir = bench_dir.join(LOGS);
     fs::create_dir_all(&log_dir).unwrap();
 
     for path in paths {
         let name = path.file_stem().unwrap().to_str().unwrap().to_owned();
         let op_path = compile(&path, &generated_dir);
         let extra_args = load_extra_args(&path);
-        let out_path = res_dir.join(format!("{}.txt", name));
+        let out_path = res_dir.join(format!("{}.{TXT_EXT}", name));
 
         fs::write(&out_path, "").unwrap();
 
