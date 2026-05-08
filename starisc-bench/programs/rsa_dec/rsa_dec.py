@@ -1,10 +1,12 @@
-from starisc import private, public, claim
+from starisc import private, public, claim, const
+
+EXP_BITS = const("EXP_BITS")
 
 encrypted = public(0)
 n = public(1)
 
 res = 1
-for i in range(32):  # d as 32 private bits, square-and-multiply
+for i in range(EXP_BITS):
     b = private(i)
     sq = (res * res) % n
     if b:

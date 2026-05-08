@@ -1,0 +1,13 @@
+  PC  Instruction             r1   r2   r15
+-------------------------------------------
+   0  READ_PRIV r1 0          23    0     0
+   1  READ_PRIV r2 1          23   47     0
+   2  ADD       r1 r1 r2      70   47     0
+   3  ADD       r2 r1 r2      70  117     0
+   4  ADD       r1 r1 r2     187  117     0
+   5  ADD       r2 r1 r2     187  304     0
+   6  ADD       r1 r1 r2     491  304     0
+   7  ADD       r2 r1 r2     491  795     0
+   8  ADD       r1 r1 r2    1286  795     0
+   9  SET       r15 1286    1286  795  1286
+  10  ASSERT_EQ r1 r15      1286  795  1286

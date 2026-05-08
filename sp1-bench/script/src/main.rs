@@ -12,7 +12,12 @@ const RUNS: usize = 5;
 const FIB: &str = "fib";
 const RSA_ENC: &str = "rsa_enc";
 const RSA_DEC: &str = "rsa_dec";
-const FIB_CASES: &[(u32, u64)] = &[(8, 1_286), (16, 60_419)];
+const FIB_CASES: &[(u32, u64)] = &[
+    (8, 1_286),
+    (32, 133_344_710),
+    (128, 13_335_296_880_932_502_726),
+    (512, 11_289_386_247_850_834_118),
+];
 const FIB_ELF: Elf = include_elf!("fib-program");
 const RSA_ENC_ELF: Elf = include_elf!("rsa-enc-program");
 const RSA_DEC_ELF: Elf = include_elf!("rsa-dec-program");

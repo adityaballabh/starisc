@@ -1,0 +1,32 @@
+===== fib_8 =====
+run 1: prove=10.111ms  verify=0.470ms  proof=59KB
+run 2: prove=5.553ms  verify=0.485ms  proof=59KB
+run 3: prove=5.419ms  verify=0.534ms  proof=59KB
+run 4: prove=6.000ms  verify=0.595ms  proof=59KB
+run 5: prove=4.693ms  verify=0.623ms  proof=59KB
+avg(5): prove=6.355ms  verify=0.541ms  proof=59KB
+
+===== fib_32 =====
+run 1: prove=13.362ms  verify=0.855ms  proof=68KB
+run 2: prove=13.481ms  verify=0.855ms  proof=68KB
+run 3: prove=13.385ms  verify=0.858ms  proof=68KB
+run 4: prove=13.447ms  verify=0.850ms  proof=68KB
+run 5: prove=13.288ms  verify=0.839ms  proof=68KB
+avg(5): prove=13.393ms  verify=0.851ms  proof=68KB
+
+===== fib_128 =====
+run 1: prove=60.026ms  verify=2.333ms  proof=76KB
+run 2: prove=60.104ms  verify=2.374ms  proof=76KB
+run 3: prove=60.088ms  verify=2.336ms  proof=76KB
+run 4: prove=59.973ms  verify=2.334ms  proof=76KB
+run 5: prove=60.531ms  verify=2.356ms  proof=76KB
+avg(5): prove=60.144ms  verify=2.347ms  proof=76KB
+
+===== fib_512 =====
+run 1: prove=276.569ms  verify=8.809ms  proof=80KB
+run 2: prove=291.332ms  verify=8.780ms  proof=80KB
+run 3: prove=281.429ms  verify=9.347ms  proof=80KB
+run 4: prove=282.907ms  verify=8.805ms  proof=80KB
+run 5: prove=274.025ms  verify=8.843ms  proof=80KB
+avg(5): prove=281.252ms  verify=8.917ms  proof=80KB
+
