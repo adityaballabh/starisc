@@ -30,6 +30,7 @@ class Flattener(ast.NodeVisitor):
         self._next_temp = 0
         self._consts = {}
         self._assigned_names = set()
+        self._loop_consts = set()
 
     def run(self, tree):
         self.visit(tree)
@@ -88,10 +89,12 @@ class Flattener(ast.NodeVisitor):
         saved_ops = self._ops
         saved_consts = self._consts
         saved_assigned_names = self._assigned_names
+        saved_loop_consts = self._loop_consts
 
         self._ops = []
         self._consts = dict(consts)
         self._assigned_names = set()
+        self._loop_consts = set(saved_loop_consts)
 
         try:
             for stmt in statements:
@@ -101,6 +104,7 @@ class Flattener(ast.NodeVisitor):
             self._ops = saved_ops
             self._consts = saved_consts
             self._assigned_names = saved_assigned_names
+            self._loop_consts = saved_loop_consts
 
     def _flatten_condition(self, node):
         match node:
@@ -148,6 +152,10 @@ class Flattener(ast.NodeVisitor):
     def _flatten_expr(self, node):
         match node:
             case ast.Name(id=name):
+                if name in self._loop_consts:
+                    t = self._incr_temp()
+                    self._ops.append(Op(OP_SET, t, str(self._consts[name])))
+                    return t
                 return name
 
             case ast.Constant(value=v):
@@ -345,11 +353,13 @@ class Flattener(ast.NodeVisitor):
 
         start, end = bounds
         var = node.target.id
+        self._loop_consts.add(var)
         for i in range(start, end):
             self._consts[var] = i
             for stmt in node.body:
                 self.visit(stmt)
         self._consts.pop(var, None)
+        self._loop_consts.discard(var)
 
     def visit_ImportFrom(self, node):
         pass

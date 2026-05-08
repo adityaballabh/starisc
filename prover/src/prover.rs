@@ -23,6 +23,8 @@ const FRI_FOLDING_FACTOR: usize = 8;
 const FRI_REMAINDER_MAX_DEGREE: usize = 31;
 // verifier rejects proofs below this security level
 const MIN_VERIFY_SECURITY_BITS: u32 = 64;
+const CLAIM_SCRATCH_REGISTER: u8 = 15;
+const CLAIM_FALLBACK_SCRATCH_REGISTER: u8 = 14;
 
 pub(crate) struct VmProver {
     options: ProofOptions,
@@ -226,7 +228,11 @@ pub struct Claim {
 }
 
 pub fn extend_with_claim(prog: &[Instruction], claim: &Claim) -> Vec<Instruction> {
-    let scratch = if claim.register == 15 { 14 } else { 15 };
+    let scratch = if claim.register == CLAIM_SCRATCH_REGISTER {
+        CLAIM_FALLBACK_SCRATCH_REGISTER
+    } else {
+        CLAIM_SCRATCH_REGISTER
+    };
     let mut extended = prog.to_vec();
     extended.push(Instruction::Set {
         dest: scratch,

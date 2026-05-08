@@ -6,6 +6,14 @@ use std::path::Path;
 use std::time::Instant;
 
 const RUNS: usize = 5;
+const FIB: &str = "fib";
+const RSA_ENC: &str = "rsa_enc";
+const RSA_DEC: &str = "rsa_dec";
+const FIB_CASES: &[(u32, u64)] = &[(8, 1_286), (16, 60_419)];
+
+fn family_results_path(res_dir: &Path, family: &str) -> std::path::PathBuf {
+    res_dir.join(format!("{family}.txt"))
+}
 
 fn bench_once<T: serde::Serialize>(
     input: &T,
@@ -46,8 +54,14 @@ fn bench<T: serde::Serialize>(
     expected: u64,
     res_dir: &Path,
 ) {
-    let out_path = res_dir.join(format!("{}.txt", name));
-    fs::write(&out_path, "").unwrap();
+    let out_path = res_dir;
+    let mut f = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(out_path)
+        .unwrap();
+    f.write_all(format!("===== {name} =====\n").as_bytes())
+        .unwrap();
 
     let mut totals = (0.0_f64, 0.0_f64, 0_usize);
     for run in 1..=RUNS {
@@ -75,17 +89,21 @@ fn bench<T: serde::Serialize>(
     println!("{}: {}", name, avg);
     let mut f = OpenOptions::new().append(true).open(&out_path).unwrap();
     f.write_all(avg.as_bytes()).unwrap();
+    f.write_all(b"\n").unwrap();
 }
 
 fn bench_fib(res_dir: &Path) {
-    for (n, expected) in [(8_u32, 1_286_u64), (16_u32, 60_419_u64)] {
+    let res_dir = family_results_path(res_dir, FIB);
+    let mut cases = FIB_CASES.to_vec();
+    cases.sort_by_key(|&(n, _)| n);
+    for (n, expected) in cases {
         bench(
             &format!("fib_{}", n),
             &(n, 23_u64, 47_u64),
             FIB_ELF,
             FIB_ID,
             expected,
-            res_dir,
+            &res_dir,
         );
     }
 }
@@ -101,7 +119,7 @@ fn bench_rsa(res_dir: &Path) {
         RSA_ENC_ELF,
         RSA_ENC_ID,
         encrypted,
-        res_dir,
+        &family_results_path(res_dir, RSA_ENC),
     );
 
     let d: u64 = 2_145_513_473;
@@ -111,7 +129,7 @@ fn bench_rsa(res_dir: &Path) {
         RSA_DEC_ELF,
         RSA_DEC_ID,
         message,
-        res_dir,
+        &family_results_path(res_dir, RSA_DEC),
     );
 }
 
@@ -121,6 +139,9 @@ fn main() {
         .unwrap()
         .join("results");
     fs::create_dir_all(&res_dir).unwrap();
+    for family in [FIB, RSA_ENC, RSA_DEC] {
+        fs::write(family_results_path(&res_dir, family), "").unwrap();
+    }
 
     bench_fib(&res_dir);
     bench_rsa(&res_dir);

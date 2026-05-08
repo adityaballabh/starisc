@@ -452,6 +452,26 @@ class TestUnsupported(unittest.TestCase):
         with self.assertRaises(TypeError):
             compile_first_stage("n = 3\nfor i in range(n):\n    x = i")
 
+    def test_for_loop_index_in_expression(self):
+        self.assertEqual(
+            compile_first_stage("acc = 0\nfor i in range(3):\n    acc = acc + (i + 1)"),
+            [
+                Op("SET", "acc", "0"),
+                Op("SET", "t0", "0"),
+                Op("SET", "t1", "1"),
+                Op("ADD", "t2", "t0", "t1"),
+                Op("ADD", "acc", "acc", "t2"),
+                Op("SET", "t3", "1"),
+                Op("SET", "t4", "1"),
+                Op("ADD", "t5", "t3", "t4"),
+                Op("ADD", "acc", "acc", "t5"),
+                Op("SET", "t6", "2"),
+                Op("SET", "t7", "1"),
+                Op("ADD", "t8", "t6", "t7"),
+                Op("ADD", "acc", "acc", "t8"),
+            ],
+        )
+
     def test_and_condition_raises(self):
         with self.assertRaises(NotImplementedError):
             compile_first_stage("x = 1\ny = 2\nif x and y:\n    z = 3")

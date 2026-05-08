@@ -9,9 +9,17 @@ use std::path::Path;
 use std::time::Instant;
 
 const RUNS: usize = 5;
+const FIB: &str = "fib";
+const RSA_ENC: &str = "rsa_enc";
+const RSA_DEC: &str = "rsa_dec";
+const FIB_CASES: &[(u32, u64)] = &[(8, 1_286), (16, 60_419)];
 const FIB_ELF: Elf = include_elf!("fib-program");
 const RSA_ENC_ELF: Elf = include_elf!("rsa-enc-program");
 const RSA_DEC_ELF: Elf = include_elf!("rsa-dec-program");
+
+fn family_results_path(res_dir: &Path, family: &str) -> std::path::PathBuf {
+    res_dir.join(format!("{family}.txt"))
+}
 
 fn read_committed_u64(bytes: &[u8]) -> u64 {
     let bytes: [u8; 8] = bytes.try_into().expect("expected one committed u64");
@@ -49,8 +57,14 @@ fn bench<P: Prover, F>(
 ) where
     F: Fn() -> SP1Stdin,
 {
-    let out_path = res_dir.join(format!("{}.txt", name));
-    fs::write(&out_path, "").unwrap();
+    let out_path = res_dir;
+    let mut f = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(out_path)
+        .unwrap();
+    f.write_all(format!("===== {name} =====\n").as_bytes())
+        .unwrap();
 
     let mut totals = (0.0_f64, 0.0_f64, 0_usize);
     for run in 1..=RUNS {
@@ -78,16 +92,20 @@ fn bench<P: Prover, F>(
     print!("{}: {}\n", name, avg);
     let mut f = OpenOptions::new().append(true).open(&out_path).unwrap();
     f.write_all(avg.as_bytes()).unwrap();
+    f.write_all(b"\n").unwrap();
 }
 
 fn bench_fib<P: Prover>(client: &P, res_dir: &Path) {
+    let res_dir = family_results_path(res_dir, FIB);
     let pk = client.setup(FIB_ELF).expect("failed to setup fib elf");
-    for (n, expected) in [(8_u32, 1_286_u64), (16_u32, 60_419_u64)] {
+    let mut cases = FIB_CASES.to_vec();
+    cases.sort_by_key(|&(n, _)| n);
+    for (n, expected) in cases {
         bench(
             &format!("fib_{}", n),
             client,
             &pk,
-            res_dir,
+            &res_dir,
             expected,
             move || {
                 let mut stdin = SP1Stdin::new();
@@ -109,23 +127,37 @@ fn bench_rsa<P: Prover>(client: &P, res_dir: &Path) {
     let pk_enc = client
         .setup(RSA_ENC_ELF)
         .expect("failed to setup rsa_enc elf");
-    bench("rsa_enc", client, &pk_enc, res_dir, encrypted, || {
-        let mut stdin = SP1Stdin::new();
-        stdin.write(&message);
-        stdin.write(&n);
-        stdin
-    });
+    bench(
+        "rsa_enc",
+        client,
+        &pk_enc,
+        &family_results_path(res_dir, RSA_ENC),
+        encrypted,
+        || {
+            let mut stdin = SP1Stdin::new();
+            stdin.write(&message);
+            stdin.write(&n);
+            stdin
+        },
+    );
 
     let pk_dec = client
         .setup(RSA_DEC_ELF)
         .expect("failed to setup rsa_dec elf");
-    bench("rsa_dec", client, &pk_dec, res_dir, message, || {
-        let mut stdin = SP1Stdin::new();
-        stdin.write(&encrypted);
-        stdin.write(&n);
-        stdin.write(&d);
-        stdin
-    });
+    bench(
+        "rsa_dec",
+        client,
+        &pk_dec,
+        &family_results_path(res_dir, RSA_DEC),
+        message,
+        || {
+            let mut stdin = SP1Stdin::new();
+            stdin.write(&encrypted);
+            stdin.write(&n);
+            stdin.write(&d);
+            stdin
+        },
+    );
 }
 
 fn main() {
@@ -136,6 +168,9 @@ fn main() {
         .unwrap()
         .join("results");
     fs::create_dir_all(&res_dir).unwrap();
+    for family in [FIB, RSA_ENC, RSA_DEC] {
+        fs::write(family_results_path(&res_dir, family), "").unwrap();
+    }
 
     let client = ProverClient::from_env();
 

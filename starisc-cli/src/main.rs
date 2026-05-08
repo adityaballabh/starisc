@@ -42,6 +42,8 @@ enum Command {
         output: Option<String>,
         #[arg(long)]
         air_output: Option<String>,
+        #[arg(long)]
+        trace_output: Option<String>,
     },
     Verify {
         program: String,
@@ -95,6 +97,7 @@ fn main() {
             claim,
             output,
             air_output,
+            trace_output,
         } => {
             let prog = parse_file(&program).unwrap_or_else(|e| {
                 eprintln!("parse error: {e}");
@@ -133,7 +136,7 @@ fn main() {
                 process::exit(1);
             });
 
-            if let Some(path) = air_output {
+            if air_output.is_some() || trace_output.is_some() {
                 let air_prog = match claim {
                     Some(claim) => extend_with_claim(&prog, &claim),
                     None => prog.clone(),
@@ -143,10 +146,19 @@ fn main() {
                         eprintln!("failed to build AIR output trace: {e}");
                         process::exit(1);
                     });
-                write_air_table(&air_prog, &vm_trace, &path).unwrap_or_else(|e| {
-                    eprintln!("failed to write AIR output: {e}");
-                    process::exit(1);
-                });
+                if let Some(path) = trace_output {
+                    vm::write_trace_table(&air_prog, &vm_trace, &path).unwrap_or_else(|e| {
+                        eprintln!("failed to write trace output: {e}");
+                        process::exit(1);
+                    });
+                }
+
+                if let Some(path) = air_output {
+                    write_air_table(&air_prog, &vm_trace, &path).unwrap_or_else(|e| {
+                        eprintln!("failed to write AIR output: {e}");
+                        process::exit(1);
+                    });
+                }
             }
 
             println!("proof written to {} ({}KB)", out_path, bytes.len() / KB);
