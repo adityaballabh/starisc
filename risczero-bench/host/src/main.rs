@@ -1,4 +1,7 @@
-use methods::{FIB_ELF, FIB_ID, RSA_DEC_ELF, RSA_DEC_ID, RSA_ENC_ELF, RSA_ENC_ID};
+use methods::{
+    FIB_ELF, FIB_ID, RANGE_PROOF_ELF, RANGE_PROOF_ID, RSA_DEC_ELF, RSA_DEC_ID, RSA_ENC_ELF,
+    RSA_ENC_ID,
+};
 use risc0_zkvm::{default_prover, ExecutorEnv};
 use std::fs::{self, OpenOptions};
 use std::io::Write as IoWrite;
@@ -9,6 +12,7 @@ const RUNS: usize = 5;
 const FIB: &str = "fib";
 const RSA_ENC: &str = "rsa_enc";
 const RSA_DEC: &str = "rsa_dec";
+const RANGE_PROOF: &str = "range_proof";
 const FIB_CASES: &[(u32, u64)] = &[
     (8, 1_286),
     (32, 133_344_710),
@@ -138,16 +142,33 @@ fn bench_rsa(res_dir: &Path) {
     );
 }
 
+fn bench_range_proof(res_dir: &Path) {
+    let x: u64 = 521;
+    let lower: u64 = 10;
+    let upper: u64 = 1_000;
+    let in_range: u64 = 2;
+
+    bench(
+        RANGE_PROOF,
+        &(x, lower, upper),
+        RANGE_PROOF_ELF,
+        RANGE_PROOF_ID,
+        in_range,
+        &family_results_path(res_dir, RANGE_PROOF),
+    );
+}
+
 fn main() {
     let res_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
         .join("results");
     fs::create_dir_all(&res_dir).unwrap();
-    for family in [FIB, RSA_ENC, RSA_DEC] {
+    for family in [FIB, RSA_ENC, RSA_DEC, RANGE_PROOF] {
         fs::write(family_results_path(&res_dir, family), "").unwrap();
     }
 
     bench_fib(&res_dir);
     bench_rsa(&res_dir);
+    bench_range_proof(&res_dir);
 }

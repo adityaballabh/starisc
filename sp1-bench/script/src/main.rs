@@ -12,6 +12,7 @@ const RUNS: usize = 5;
 const FIB: &str = "fib";
 const RSA_ENC: &str = "rsa_enc";
 const RSA_DEC: &str = "rsa_dec";
+const RANGE_PROOF: &str = "range_proof";
 const FIB_CASES: &[(u32, u64)] = &[
     (8, 1_286),
     (32, 133_344_710),
@@ -21,6 +22,7 @@ const FIB_CASES: &[(u32, u64)] = &[
 const FIB_ELF: Elf = include_elf!("fib-program");
 const RSA_ENC_ELF: Elf = include_elf!("rsa-enc-program");
 const RSA_DEC_ELF: Elf = include_elf!("rsa-dec-program");
+const RANGE_PROOF_ELF: Elf = include_elf!("range-proof-program");
 
 fn family_results_path(res_dir: &Path, family: &str) -> std::path::PathBuf {
     res_dir.join(format!("{family}.txt"))
@@ -165,6 +167,31 @@ fn bench_rsa<P: Prover>(client: &P, res_dir: &Path) {
     );
 }
 
+fn bench_range_proof<P: Prover>(client: &P, res_dir: &Path) {
+    let x: u64 = 521;
+    let lower: u64 = 10;
+    let upper: u64 = 1_000;
+    let in_range: u64 = 2;
+
+    let pk = client
+        .setup(RANGE_PROOF_ELF)
+        .expect("failed to setup range_proof elf");
+    bench(
+        RANGE_PROOF,
+        client,
+        &pk,
+        &family_results_path(res_dir, RANGE_PROOF),
+        in_range,
+        || {
+            let mut stdin = SP1Stdin::new();
+            stdin.write(&x);
+            stdin.write(&lower);
+            stdin.write(&upper);
+            stdin
+        },
+    );
+}
+
 fn main() {
     sp1_sdk::utils::setup_logger();
 
@@ -173,7 +200,7 @@ fn main() {
         .unwrap()
         .join("results");
     fs::create_dir_all(&res_dir).unwrap();
-    for family in [FIB, RSA_ENC, RSA_DEC] {
+    for family in [FIB, RSA_ENC, RSA_DEC, RANGE_PROOF] {
         fs::write(family_results_path(&res_dir, family), "").unwrap();
     }
 
@@ -181,4 +208,5 @@ fn main() {
 
     bench_fib(&client, &res_dir);
     bench_rsa(&client, &res_dir);
+    bench_range_proof(&client, &res_dir);
 }
