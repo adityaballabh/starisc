@@ -297,6 +297,13 @@ fn write_output_logs(name: &str, op_path: &str, extra_args: &[String], log_dir: 
     );
 }
 
+fn recreate_dir(path: &Path) {
+    if path.exists() {
+        fs::remove_dir_all(path).unwrap();
+    }
+    fs::create_dir_all(path).unwrap();
+}
+
 fn main() {
     build_starisc_cli();
 
@@ -327,10 +334,14 @@ fn main() {
     families.dedup();
     for family in &families {
         fs::write(res_dir.join(format!("{}.{TXT_EXT}", family)), "").unwrap();
+        recreate_dir(&generated_dir.join(family));
     }
 
     let log_dir = bench_dir.join(LOGS);
     fs::create_dir_all(&log_dir).unwrap();
+    for family in &families {
+        recreate_dir(&log_dir.join(family));
+    }
 
     for case in cases {
         let name = case.name.clone();

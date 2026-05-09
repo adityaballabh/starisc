@@ -13,16 +13,24 @@ const FIB: &str = "fib";
 const RSA_ENC: &str = "rsa_enc";
 const RSA_DEC: &str = "rsa_dec";
 const RANGE_PROOF: &str = "range_proof";
+const HORNER: &str = "horner";
 const FIB_CASES: &[(u32, u64)] = &[
     (8, 1_286),
     (32, 133_344_710),
     (128, 13_335_296_880_932_502_726),
     (512, 11_289_386_247_850_834_118),
 ];
+const HORNER_CASES: &[(u32, u64)] = &[
+    (8, 4_916),
+    (32, 1_389_765_141_638_864),
+    (128, 6_931_478_948_943_813_440),
+    (512, 1_588_796_285_760_400_640),
+];
 const FIB_ELF: Elf = include_elf!("fib-program");
 const RSA_ENC_ELF: Elf = include_elf!("rsa-enc-program");
 const RSA_DEC_ELF: Elf = include_elf!("rsa-dec-program");
 const RANGE_PROOF_ELF: Elf = include_elf!("range-proof-program");
+const HORNER_ELF: Elf = include_elf!("horner-program");
 
 fn family_results_path(res_dir: &Path, family: &str) -> std::path::PathBuf {
     res_dir.join(format!("{family}.txt"))
@@ -167,6 +175,31 @@ fn bench_rsa<P: Prover>(client: &P, res_dir: &Path) {
     );
 }
 
+fn bench_horner<P: Prover>(client: &P, res_dir: &Path) {
+    let res_dir = family_results_path(res_dir, HORNER);
+    let x: u64 = 3;
+    let pk = client
+        .setup(HORNER_ELF)
+        .expect("failed to setup horner elf");
+    let mut cases = HORNER_CASES.to_vec();
+    cases.sort_by_key(|&(n, _)| n);
+    for (n, expected) in cases {
+        bench(
+            &format!("horner_{}", n),
+            client,
+            &pk,
+            &res_dir,
+            expected,
+            move || {
+                let mut stdin = SP1Stdin::new();
+                stdin.write(&n);
+                stdin.write(&x);
+                stdin
+            },
+        );
+    }
+}
+
 fn bench_range_proof<P: Prover>(client: &P, res_dir: &Path) {
     let x: u64 = 521;
     let lower: u64 = 10;
@@ -200,7 +233,7 @@ fn main() {
         .unwrap()
         .join("results");
     fs::create_dir_all(&res_dir).unwrap();
-    for family in [FIB, RSA_ENC, RSA_DEC, RANGE_PROOF] {
+    for family in [FIB, RSA_ENC, RSA_DEC, HORNER, RANGE_PROOF] {
         fs::write(family_results_path(&res_dir, family), "").unwrap();
     }
 
@@ -208,5 +241,6 @@ fn main() {
 
     bench_fib(&client, &res_dir);
     bench_rsa(&client, &res_dir);
+    bench_horner(&client, &res_dir);
     bench_range_proof(&client, &res_dir);
 }

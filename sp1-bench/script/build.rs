@@ -5,4 +5,5 @@ fn main() {
     build_program_with_args("../programs/rsa-enc", Default::default());
     build_program_with_args("../programs/rsa-dec", Default::default());
     build_program_with_args("../programs/range-proof", Default::default());
+    build_program_with_args("../programs/horner", Default::default());
 }

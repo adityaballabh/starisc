@@ -1,0 +1,32 @@
+===== horner_8 =====
+run 1: prove=10738.496ms  verify=24.944ms  proof=204KB
+run 2: prove=12885.214ms  verify=24.843ms  proof=204KB
+run 3: prove=11850.022ms  verify=18.943ms  proof=204KB
+run 4: prove=10015.283ms  verify=21.570ms  proof=204KB
+run 5: prove=10690.156ms  verify=19.099ms  proof=204KB
+avg(5): prove=11235.834ms  verify=21.880ms  proof=204KB
+
+===== horner_32 =====
+run 1: prove=9425.205ms  verify=21.324ms  proof=204KB
+run 2: prove=9304.314ms  verify=24.601ms  proof=204KB
+run 3: prove=9690.068ms  verify=21.249ms  proof=204KB
+run 4: prove=9104.383ms  verify=21.272ms  proof=204KB
+run 5: prove=9628.224ms  verify=19.799ms  proof=204KB
+avg(5): prove=9430.439ms  verify=21.649ms  proof=204KB
+
+===== horner_128 =====
+run 1: prove=8942.643ms  verify=21.262ms  proof=204KB
+run 2: prove=10191.464ms  verify=21.329ms  proof=204KB
+run 3: prove=10396.646ms  verify=21.528ms  proof=204KB
+run 4: prove=9032.616ms  verify=21.232ms  proof=204KB
+run 5: prove=8659.529ms  verify=21.221ms  proof=204KB
+avg(5): prove=9444.580ms  verify=21.314ms  proof=204KB
+
+===== horner_512 =====
+run 1: prove=17714.329ms  verify=23.328ms  proof=216KB
+run 2: prove=22042.337ms  verify=22.895ms  proof=216KB
+run 3: prove=18381.241ms  verify=20.263ms  proof=216KB
+run 4: prove=17888.613ms  verify=22.865ms  proof=216KB
+run 5: prove=17984.580ms  verify=22.822ms  proof=216KB
+avg(5): prove=18802.220ms  verify=22.435ms  proof=216KB
+

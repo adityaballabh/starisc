@@ -1,6 +1,6 @@
 use methods::{
-    FIB_ELF, FIB_ID, RANGE_PROOF_ELF, RANGE_PROOF_ID, RSA_DEC_ELF, RSA_DEC_ID, RSA_ENC_ELF,
-    RSA_ENC_ID,
+    FIB_ELF, FIB_ID, HORNER_ELF, HORNER_ID, RANGE_PROOF_ELF, RANGE_PROOF_ID, RSA_DEC_ELF,
+    RSA_DEC_ID, RSA_ENC_ELF, RSA_ENC_ID,
 };
 use risc0_zkvm::{default_prover, ExecutorEnv};
 use std::fs::{self, OpenOptions};
@@ -13,11 +13,18 @@ const FIB: &str = "fib";
 const RSA_ENC: &str = "rsa_enc";
 const RSA_DEC: &str = "rsa_dec";
 const RANGE_PROOF: &str = "range_proof";
+const HORNER: &str = "horner";
 const FIB_CASES: &[(u32, u64)] = &[
     (8, 1_286),
     (32, 133_344_710),
     (128, 13_335_296_880_932_502_726),
     (512, 11_289_386_247_850_834_118),
+];
+const HORNER_CASES: &[(u32, u64)] = &[
+    (8, 4_916),
+    (32, 1_389_765_141_638_864),
+    (128, 6_931_478_948_943_813_440),
+    (512, 1_588_796_285_760_400_640),
 ];
 
 fn family_results_path(res_dir: &Path, family: &str) -> std::path::PathBuf {
@@ -142,6 +149,23 @@ fn bench_rsa(res_dir: &Path) {
     );
 }
 
+fn bench_horner(res_dir: &Path) {
+    let res_dir = family_results_path(res_dir, HORNER);
+    let x: u64 = 3;
+    let mut cases = HORNER_CASES.to_vec();
+    cases.sort_by_key(|&(n, _)| n);
+    for (n, expected) in cases {
+        bench(
+            &format!("horner_{}", n),
+            &(n, x),
+            HORNER_ELF,
+            HORNER_ID,
+            expected,
+            &res_dir,
+        );
+    }
+}
+
 fn bench_range_proof(res_dir: &Path) {
     let x: u64 = 521;
     let lower: u64 = 10;
@@ -164,11 +188,12 @@ fn main() {
         .unwrap()
         .join("results");
     fs::create_dir_all(&res_dir).unwrap();
-    for family in [FIB, RSA_ENC, RSA_DEC, RANGE_PROOF] {
+    for family in [FIB, RSA_ENC, RSA_DEC, HORNER, RANGE_PROOF] {
         fs::write(family_results_path(&res_dir, family), "").unwrap();
     }
 
     bench_fib(&res_dir);
     bench_rsa(&res_dir);
+    bench_horner(&res_dir);
     bench_range_proof(&res_dir);
 }

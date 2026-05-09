@@ -34,6 +34,7 @@ Values can be supplied at proving time through `READ_PRIV` and `READ_PUB`. Priva
   Flattens and converts .py files into intermediate representation (IR)
 
 - Compiler backend
+
   Converts IR into `.op` files
 
 ### VM
@@ -79,7 +80,7 @@ cargo run --release -p starisc-cli -- verify program.op --proof program.op.proof
 
 ### Benchmarks
 
-Programs include `rsa_enc`, `rsa_dec`, `fib_8`, and `fib_16`.
+Programs include `rsa_enc`, `rsa_dec`, `horner`, `range_proof`, and `fib` evaluated at different sizes.
 
 | zkVM |  Command | Results |
 | ------ | ----------------- | ----------------- |
