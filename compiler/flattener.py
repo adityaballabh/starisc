@@ -32,6 +32,7 @@ class Flattener(ast.NodeVisitor):
         self._consts = dict(constants or {})
         self._assigned_names = set()
         self._loop_consts = set()
+        self._inline_consts = set()
 
     def run(self, tree):
         self.visit(tree)
@@ -95,11 +96,13 @@ class Flattener(ast.NodeVisitor):
         saved_consts = self._consts
         saved_assigned_names = self._assigned_names
         saved_loop_consts = self._loop_consts
+        saved_inline_consts = self._inline_consts
 
         self._ops = []
         self._consts = dict(consts)
         self._assigned_names = set()
         self._loop_consts = set(saved_loop_consts)
+        self._inline_consts = set(saved_inline_consts)
 
         try:
             for stmt in statements:
@@ -110,6 +113,7 @@ class Flattener(ast.NodeVisitor):
             self._consts = saved_consts
             self._assigned_names = saved_assigned_names
             self._loop_consts = saved_loop_consts
+            self._inline_consts = saved_inline_consts
 
     def _flatten_condition(self, node):
         match node:
@@ -157,7 +161,7 @@ class Flattener(ast.NodeVisitor):
     def _flatten_expr(self, node):
         match node:
             case ast.Name(id=name):
-                if name in self._loop_consts:
+                if name in self._loop_consts or name in self._inline_consts:
                     t = self._incr_temp()
                     self._ops.append(Op(OP_SET, t, str(self._consts[name])))
                     return t
@@ -286,6 +290,7 @@ class Flattener(ast.NodeVisitor):
                 if value is None:
                     raise TypeError(f"missing compile-time const: {name}")
                 self._consts[dest] = value
+                self._inline_consts.add(dest)
                 return
 
         const_value = self._const_int(value_node)
@@ -296,6 +301,7 @@ class Flattener(ast.NodeVisitor):
                 self._consts[dest] = const_value
             else:
                 self._consts.pop(dest, None)
+            self._inline_consts.discard(dest)
             return
         if prev_ops_len == len(self._ops):
             # no op was emitted -> SET
@@ -304,6 +310,7 @@ class Flattener(ast.NodeVisitor):
                 self._consts[dest] = const_value
             else:
                 self._consts.pop(dest, None)
+            self._inline_consts.discard(dest)
             return
         last = self._ops[-1]
         self._ops[-1] = Op(last.opcode, dest, last.src1, last.src2)
@@ -312,6 +319,7 @@ class Flattener(ast.NodeVisitor):
             self._consts[dest] = const_value
         else:
             self._consts.pop(dest, None)
+        self._inline_consts.discard(dest)
 
     def visit_Assign(self, node):
         dest = node.targets[0]
@@ -342,6 +350,7 @@ class Flattener(ast.NodeVisitor):
             self._ops.extend(then_ops)
 
         assigned_in_branches = then_assigned | else_assigned
+        self._inline_consts.difference_update(assigned_in_branches)
         self._consts = {
             name: value
             for name, value in consts_after_condition.items()
@@ -381,13 +390,22 @@ class Flattener(ast.NodeVisitor):
 
         start, end = bounds
         var = node.target.id
+        had_const = var in self._consts
+        prev_const = self._consts.get(var)
+        was_loop_const = var in self._loop_consts
         self._loop_consts.add(var)
-        for i in range(start, end):
-            self._consts[var] = i
-            for stmt in node.body:
-                self.visit(stmt)
-        self._consts.pop(var, None)
-        self._loop_consts.discard(var)
+        try:
+            for i in range(start, end):
+                self._consts[var] = i
+                for stmt in node.body:
+                    self.visit(stmt)
+        finally:
+            if had_const:
+                self._consts[var] = prev_const
+            else:
+                self._consts.pop(var, None)
+            if not was_loop_const:
+                self._loop_consts.discard(var)
 
     def visit_ImportFrom(self, node):
         pass

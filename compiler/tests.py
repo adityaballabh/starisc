@@ -491,6 +491,51 @@ class TestUnsupported(unittest.TestCase):
             ],
         )
 
+    def test_named_const_in_expression(self):
+        self.assertEqual(
+            compile_first_stage('N = const("N")\nx = N + 1', {"N": 3}),
+            [
+                Op("SET", "t0", "3"),
+                Op("SET", "t1", "1"),
+                Op("ADD", "x", "t0", "t1"),
+            ],
+        )
+
+    def test_branch_assignment_invalidates_inline_const(self):
+        self.assertEqual(
+            compile_first_stage(
+                "from starisc import private\n"
+                'N = const("N")\n'
+                "flag = private(0)\n"
+                "if flag:\n"
+                "    N = 5\n"
+                "x = N",
+                {"N": 3},
+            ),
+            [
+                Op("READ_PRIV", "flag", "0"),
+                Op("LT", "t0", "r0", "flag"),
+                Op("JZ", "t0", "1"),
+                Op("SET", "N", "5"),
+                Op("SET", "x", "N"),
+            ],
+        )
+
+    def test_nested_for_same_name_restores_outer_index(self):
+        self.assertEqual(
+            compile_first_stage(
+                "for i in range(2):\n    for i in range(2):\n        x = i\n    y = i"
+            ),
+            [
+                Op("SET", "x", "0"),
+                Op("SET", "x", "1"),
+                Op("SET", "y", "0"),
+                Op("SET", "x", "0"),
+                Op("SET", "x", "1"),
+                Op("SET", "y", "1"),
+            ],
+        )
+
     def test_missing_const_raises(self):
         with self.assertRaises(TypeError):
             compile_first_stage('N = const("N")')
