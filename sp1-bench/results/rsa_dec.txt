@@ -1,8 +1,8 @@
 ===== rsa_dec =====
-run 1: prove=32123.534ms  verify=134.437ms  proof=2712KB
-run 2: prove=31927.550ms  verify=134.747ms  proof=2712KB
-run 3: prove=33944.588ms  verify=137.063ms  proof=2712KB
-run 4: prove=39834.679ms  verify=147.589ms  proof=2712KB
-run 5: prove=40330.355ms  verify=182.612ms  proof=2712KB
-avg(5): prove=35632.141ms  verify=147.290ms  proof=2712KB
+run 1: prove=8496.814ms  verify=60.632ms  proof=2712KB
+run 2: prove=8436.967ms  verify=60.074ms  proof=2712KB
+run 3: prove=8312.780ms  verify=60.467ms  proof=2712KB
+run 4: prove=8438.423ms  verify=60.135ms  proof=2712KB
+run 5: prove=8312.795ms  verify=60.361ms  proof=2712KB
+avg(5): prove=8399.556ms  verify=60.334ms  proof=2712KB
 

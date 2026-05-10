@@ -1,32 +1,32 @@
 ===== fib_8 =====
-run 1: prove=9301.385ms  verify=21.450ms  proof=204KB
-run 2: prove=9993.208ms  verify=22.328ms  proof=204KB
-run 3: prove=9335.300ms  verify=21.356ms  proof=204KB
-run 4: prove=8789.153ms  verify=21.308ms  proof=204KB
-run 5: prove=8668.245ms  verify=18.816ms  proof=204KB
-avg(5): prove=9217.458ms  verify=21.052ms  proof=204KB
+run 1: prove=1632.862ms  verify=9.323ms  proof=204KB
+run 2: prove=1593.888ms  verify=9.085ms  proof=204KB
+run 3: prove=1570.905ms  verify=9.074ms  proof=204KB
+run 4: prove=1604.600ms  verify=9.142ms  proof=204KB
+run 5: prove=1596.163ms  verify=9.157ms  proof=204KB
+avg(5): prove=1599.684ms  verify=9.156ms  proof=204KB
 
 ===== fib_32 =====
-run 1: prove=9106.381ms  verify=18.881ms  proof=204KB
-run 2: prove=9286.129ms  verify=20.705ms  proof=204KB
-run 3: prove=9403.526ms  verify=21.374ms  proof=204KB
-run 4: prove=9669.183ms  verify=21.455ms  proof=204KB
-run 5: prove=9820.251ms  verify=21.565ms  proof=204KB
-avg(5): prove=9457.094ms  verify=20.796ms  proof=204KB
+run 1: prove=1678.978ms  verify=9.107ms  proof=204KB
+run 2: prove=1647.564ms  verify=9.043ms  proof=204KB
+run 3: prove=1588.432ms  verify=9.047ms  proof=204KB
+run 4: prove=1649.859ms  verify=9.296ms  proof=204KB
+run 5: prove=1639.575ms  verify=9.137ms  proof=204KB
+avg(5): prove=1640.882ms  verify=9.126ms  proof=204KB
 
 ===== fib_128 =====
-run 1: prove=8875.574ms  verify=21.284ms  proof=204KB
-run 2: prove=8632.135ms  verify=21.288ms  proof=204KB
-run 3: prove=8631.811ms  verify=21.316ms  proof=204KB
-run 4: prove=9213.071ms  verify=18.907ms  proof=204KB
-run 5: prove=8905.058ms  verify=21.388ms  proof=204KB
-avg(5): prove=8851.530ms  verify=20.837ms  proof=204KB
+run 1: prove=1684.183ms  verify=9.118ms  proof=204KB
+run 2: prove=1647.010ms  verify=9.046ms  proof=204KB
+run 3: prove=1618.512ms  verify=9.015ms  proof=204KB
+run 4: prove=1593.594ms  verify=8.946ms  proof=204KB
+run 5: prove=1591.953ms  verify=9.028ms  proof=204KB
+avg(5): prove=1627.050ms  verify=9.031ms  proof=204KB
 
 ===== fib_512 =====
-run 1: prove=8430.060ms  verify=21.257ms  proof=204KB
-run 2: prove=8323.789ms  verify=21.797ms  proof=204KB
-run 3: prove=8310.263ms  verify=21.254ms  proof=204KB
-run 4: prove=8361.403ms  verify=21.487ms  proof=204KB
-run 5: prove=8442.570ms  verify=21.256ms  proof=204KB
-avg(5): prove=8373.617ms  verify=21.410ms  proof=204KB
+run 1: prove=1561.929ms  verify=8.983ms  proof=204KB
+run 2: prove=1566.456ms  verify=8.999ms  proof=204KB
+run 3: prove=1553.363ms  verify=8.963ms  proof=204KB
+run 4: prove=1567.067ms  verify=9.370ms  proof=204KB
+run 5: prove=1638.108ms  verify=8.949ms  proof=204KB
+avg(5): prove=1577.385ms  verify=9.053ms  proof=204KB
 

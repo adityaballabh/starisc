@@ -1,8 +1,8 @@
 ===== rsa_enc =====
-run 1: prove=16958.097ms  verify=22.891ms  proof=216KB
-run 2: prove=16926.093ms  verify=22.917ms  proof=216KB
-run 3: prove=16833.789ms  verify=21.424ms  proof=216KB
-run 4: prove=16778.039ms  verify=23.152ms  proof=216KB
-run 5: prove=16937.077ms  verify=20.554ms  proof=216KB
-avg(5): prove=16886.619ms  verify=22.188ms  proof=216KB
+run 1: prove=3084.614ms  verify=10.206ms  proof=216KB
+run 2: prove=3188.713ms  verify=9.627ms  proof=216KB
+run 3: prove=3116.357ms  verify=9.610ms  proof=216KB
+run 4: prove=3078.123ms  verify=9.589ms  proof=216KB
+run 5: prove=3072.602ms  verify=9.670ms  proof=216KB
+avg(5): prove=3108.082ms  verify=9.741ms  proof=216KB
 
