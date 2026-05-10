@@ -8,9 +8,10 @@ pub fn main() {
 
     let mut a = a0;
     let mut b = b0;
-    for _ in 0..(n / 2) {
-        a = a + b;
-        b = a + b;
+    for _ in 0..n {
+        let c = a.wrapping_add(b);
+        a = b;
+        b = c;
     }
 
     sp1_zkvm::io::commit_slice(&a.to_le_bytes());

@@ -1,6 +1,18 @@
 from collections import defaultdict
 import re
 
+from .constants import (
+    FIRST_ALLOC_REG,
+    LAST_ALLOC_REG,
+    OP_ADD,
+    OP_ASSERT_EQ,
+    OP_CLAIM,
+    OP_JZ,
+    OP_READ_PRIV,
+    OP_READ_PUB,
+    OP_SET,
+    ZERO_REGISTER,
+)
 from .op import Op
 
 
@@ -17,17 +29,17 @@ def is_name(value: str | None) -> bool:
 
 
 def op_uses(op: Op) -> set[str]:
-    if op.opcode == "CLAIM":
+    if op.opcode == OP_CLAIM:
         return {op.dst} if is_name(op.dst) else set()
-    if op.opcode == "ASSERT_EQ":
+    if op.opcode == OP_ASSERT_EQ:
         return {value for value in (op.dst, op.src1) if is_name(value)}
-    if op.opcode == "JZ":
+    if op.opcode == OP_JZ:
         return {op.dst} if is_name(op.dst) else set()
     return {value for value in (op.src1, op.src2) if is_name(value)}
 
 
 def op_defs(op: Op) -> set[str]:
-    if op.opcode in {"ASSERT_EQ", "JZ", "CLAIM"}:
+    if op.opcode in {OP_ASSERT_EQ, OP_JZ, OP_CLAIM}:
         return set()
     return {op.dst} if is_name(op.dst) else set()
 
@@ -41,7 +53,7 @@ def compute_liveness(ops: list[Op]) -> tuple[list[set[str]], list[set[str]]]:
         successors = []
         if index + 1 <= len(ops):
             successors.append(index + 1)
-        if op.opcode == "JZ":
+        if op.opcode == OP_JZ:
             successors.append(index + 1 + int(op.src1))
 
         next_live = set()
@@ -62,10 +74,11 @@ def eliminate_dead_assignments(ops: list[Op]) -> list[Op]:
         _, live_out = compute_liveness(optimized)
         next_ops = []
         changed = False
+        protected_indices = jump_protected_indices(optimized)
 
-        for op, live_after in zip(optimized, live_out):
+        for index, (op, live_after) in enumerate(zip(optimized, live_out)):
             defs = op_defs(op)
-            if defs and defs.isdisjoint(live_after):
+            if defs and defs.isdisjoint(live_after) and index not in protected_indices:
                 changed = True
                 continue
             next_ops.append(op)
@@ -73,6 +86,17 @@ def eliminate_dead_assignments(ops: list[Op]) -> list[Op]:
         if not changed:
             return optimized
         optimized = next_ops
+
+
+def jump_protected_indices(ops: list[Op]) -> set[int]:
+    # keep jump spans stable after offsets are emitted
+    indices = set()
+    for index, op in enumerate(ops):
+        if op.opcode != OP_JZ:
+            continue
+        target = index + 1 + int(op.src1)
+        indices.update(range(index + 1, min(target, len(ops))))
+    return indices
 
 
 def build_interference_graph(ops: list[Op]) -> dict[str, set[str]]:
@@ -135,12 +159,13 @@ class DisjointSets:
 def coalesce_copies(ops: list[Op]) -> list[Op]:
     graph = build_interference_graph(ops)
     dsu = DisjointSets(set(graph))
+    protected_indices = jump_protected_indices(ops)
 
     for name, neighbors in graph.items():
         dsu.neighbors[name] = set(neighbors)
 
     for op in ops:
-        if op.opcode != "SET" or not is_name(op.src1):
+        if op.opcode != OP_SET or not is_name(op.src1):
             continue
         src = dsu.find(op.src1)
         dst = dsu.find(op.dst)
@@ -154,11 +179,16 @@ def coalesce_copies(ops: list[Op]) -> list[Op]:
         replacement[name] = min(dsu.members[group])
 
     rewritten = []
-    for op in ops:
+    for index, op in enumerate(ops):
         dst = replacement.get(op.dst, op.dst)
         src1 = replacement.get(op.src1, op.src1)
         src2 = replacement.get(op.src2, op.src2)
-        if op.opcode == "SET" and is_name(src1) and dst == src1:
+        if (
+            op.opcode == OP_SET
+            and is_name(src1)
+            and dst == src1
+            and index not in protected_indices
+        ):
             continue
         rewritten.append(Op(op.opcode, dst, src1, src2))
 
@@ -181,7 +211,12 @@ def allocate_registers(ops: list[Op]) -> dict[str, str]:
             allocation[neighbor] for neighbor in graph[name] if neighbor in allocation
         }
         register = next(
-            (f"r{idx}" for idx in range(1, 16) if f"r{idx}" not in used), None
+            (
+                f"r{idx}"
+                for idx in range(FIRST_ALLOC_REG, LAST_ALLOC_REG + 1)
+                if f"r{idx}" not in used
+            ),
+            None,
         )
         if register is None:
             raise ValueError("program requires more than 15 live registers")
@@ -193,10 +228,10 @@ def allocate_registers(ops: list[Op]) -> dict[str, str]:
 def apply_allocation(ops: list[Op], allocation: dict[str, str]) -> list[Op]:
     rewritten = []
     for op in ops:
-        if op.opcode == "CLAIM":
+        if op.opcode == OP_CLAIM:
             continue
-        if op.opcode == "JZ":
-            rewritten.append(Op("JZ", allocation.get(op.dst, op.dst), op.src1))
+        if op.opcode == OP_JZ:
+            rewritten.append(Op(OP_JZ, allocation.get(op.dst, op.dst), op.src1))
             continue
         dst = allocation.get(op.dst, op.dst)
         src1 = allocation.get(op.src1, op.src1)
@@ -209,20 +244,20 @@ def emit_ops(ops: list[Op]) -> str:
     lines = []
 
     for op in ops:
-        if op.opcode in ("READ_PRIV", "READ_PUB"):
+        if op.opcode in (OP_READ_PRIV, OP_READ_PUB):
             lines.append(f"{op.opcode} {op.dst} {op.src1}")
             continue
-        if op.opcode == "SET":
+        if op.opcode == OP_SET:
             if is_name(op.src1) or is_register(op.src1):
-                lines.append(f"ADD {op.dst} {op.src1} r0")
+                lines.append(f"{OP_ADD} {op.dst} {op.src1} {ZERO_REGISTER}")
             else:
-                lines.append(f"SET {op.dst} {op.src1}")
+                lines.append(f"{OP_SET} {op.dst} {op.src1}")
             continue
-        if op.opcode == "ASSERT_EQ":
-            lines.append(f"ASSERT_EQ {op.dst} {op.src1}")
+        if op.opcode == OP_ASSERT_EQ:
+            lines.append(f"{OP_ASSERT_EQ} {op.dst} {op.src1}")
             continue
-        if op.opcode == "JZ":
-            lines.append(f"JZ {op.dst} {op.src1}")
+        if op.opcode == OP_JZ:
+            lines.append(f"{OP_JZ} {op.dst} {op.src1}")
             continue
         lines.append(f"{op.opcode} {op.dst} {op.src1} {op.src2}")
     return "\n".join(lines)

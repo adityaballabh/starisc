@@ -1,6 +1,24 @@
-run 1: prove=17.223ms  verify=1.564ms  proof=63KB
-run 2: prove=12.516ms  verify=1.014ms  proof=63KB
-run 3: prove=10.382ms  verify=0.967ms  proof=63KB
-run 4: prove=10.404ms  verify=0.998ms  proof=63KB
-run 5: prove=10.436ms  verify=0.998ms  proof=63KB
-avg(5): prove=12.192ms  verify=1.108ms  proof=63KB
+===== rsa_enc_8 =====
+run 1: prove=4.422ms  verify=0.401ms  proof=61KB
+run 2: prove=4.437ms  verify=0.450ms  proof=61KB
+run 3: prove=4.292ms  verify=0.438ms  proof=61KB
+run 4: prove=4.438ms  verify=0.456ms  proof=61KB
+run 5: prove=4.383ms  verify=0.445ms  proof=61KB
+avg(5): prove=4.394ms  verify=0.438ms  proof=61KB
+
+===== rsa_enc_16 =====
+run 1: prove=4.418ms  verify=0.428ms  proof=66KB
+run 2: prove=4.337ms  verify=0.438ms  proof=66KB
+run 3: prove=4.489ms  verify=0.452ms  proof=66KB
+run 4: prove=4.443ms  verify=0.461ms  proof=66KB
+run 5: prove=4.269ms  verify=0.458ms  proof=66KB
+avg(5): prove=4.391ms  verify=0.447ms  proof=66KB
+
+===== rsa_enc_32 =====
+run 1: prove=4.429ms  verify=0.432ms  proof=63KB
+run 2: prove=4.365ms  verify=0.432ms  proof=63KB
+run 3: prove=4.266ms  verify=0.458ms  proof=63KB
+run 4: prove=4.513ms  verify=0.445ms  proof=63KB
+run 5: prove=4.263ms  verify=0.458ms  proof=63KB
+avg(5): prove=4.367ms  verify=0.445ms  proof=63KB
+

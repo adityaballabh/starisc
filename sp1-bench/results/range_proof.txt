@@ -1,0 +1,8 @@
+===== range_proof =====
+run 1: prove=8226.926ms  verify=60.457ms  proof=2712KB
+run 2: prove=8367.158ms  verify=60.099ms  proof=2712KB
+run 3: prove=8290.242ms  verify=60.275ms  proof=2712KB
+run 4: prove=8213.258ms  verify=60.208ms  proof=2712KB
+run 5: prove=8316.942ms  verify=60.275ms  proof=2712KB
+avg(5): prove=8282.905ms  verify=60.263ms  proof=2712KB
+

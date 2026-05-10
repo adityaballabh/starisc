@@ -9,9 +9,32 @@ use std::path::Path;
 use std::time::Instant;
 
 const RUNS: usize = 5;
+const FIB: &str = "fib";
+const RSA_ENC: &str = "rsa_enc";
+const RSA_DEC: &str = "rsa_dec";
+const RANGE_PROOF: &str = "range_proof";
+const HORNER: &str = "horner";
+const FIB_CASES: &[(u32, u64)] = &[
+    (8, 1_286),
+    (32, 133_344_710),
+    (128, 13_335_296_880_932_502_726),
+    (512, 11_289_386_247_850_834_118),
+];
+const HORNER_CASES: &[(u32, u64)] = &[
+    (8, 4_916),
+    (32, 1_389_765_141_638_864),
+    (128, 6_931_478_948_943_813_440),
+    (512, 1_588_796_285_760_400_640),
+];
 const FIB_ELF: Elf = include_elf!("fib-program");
 const RSA_ENC_ELF: Elf = include_elf!("rsa-enc-program");
 const RSA_DEC_ELF: Elf = include_elf!("rsa-dec-program");
+const RANGE_PROOF_ELF: Elf = include_elf!("range-proof-program");
+const HORNER_ELF: Elf = include_elf!("horner-program");
+
+fn family_results_path(res_dir: &Path, family: &str) -> std::path::PathBuf {
+    res_dir.join(format!("{family}.txt"))
+}
 
 fn read_committed_u64(bytes: &[u8]) -> u64 {
     let bytes: [u8; 8] = bytes.try_into().expect("expected one committed u64");
@@ -49,8 +72,14 @@ fn bench<P: Prover, F>(
 ) where
     F: Fn() -> SP1Stdin,
 {
-    let out_path = res_dir.join(format!("{}.txt", name));
-    fs::write(&out_path, "").unwrap();
+    let out_path = res_dir;
+    let mut f = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(out_path)
+        .unwrap();
+    f.write_all(format!("===== {name} =====\n").as_bytes())
+        .unwrap();
 
     let mut totals = (0.0_f64, 0.0_f64, 0_usize);
     for run in 1..=RUNS {
@@ -78,16 +107,20 @@ fn bench<P: Prover, F>(
     print!("{}: {}\n", name, avg);
     let mut f = OpenOptions::new().append(true).open(&out_path).unwrap();
     f.write_all(avg.as_bytes()).unwrap();
+    f.write_all(b"\n").unwrap();
 }
 
 fn bench_fib<P: Prover>(client: &P, res_dir: &Path) {
+    let res_dir = family_results_path(res_dir, FIB);
     let pk = client.setup(FIB_ELF).expect("failed to setup fib elf");
-    for (n, expected) in [(8_u32, 1_286_u64), (16_u32, 60_419_u64)] {
+    let mut cases = FIB_CASES.to_vec();
+    cases.sort_by_key(|&(n, _)| n);
+    for (n, expected) in cases {
         bench(
             &format!("fib_{}", n),
             client,
             &pk,
-            res_dir,
+            &res_dir,
             expected,
             move || {
                 let mut stdin = SP1Stdin::new();
@@ -109,23 +142,87 @@ fn bench_rsa<P: Prover>(client: &P, res_dir: &Path) {
     let pk_enc = client
         .setup(RSA_ENC_ELF)
         .expect("failed to setup rsa_enc elf");
-    bench("rsa_enc", client, &pk_enc, res_dir, encrypted, || {
-        let mut stdin = SP1Stdin::new();
-        stdin.write(&message);
-        stdin.write(&n);
-        stdin
-    });
+    bench(
+        "rsa_enc",
+        client,
+        &pk_enc,
+        &family_results_path(res_dir, RSA_ENC),
+        encrypted,
+        || {
+            let mut stdin = SP1Stdin::new();
+            stdin.write(&message);
+            stdin.write(&n);
+            stdin
+        },
+    );
 
     let pk_dec = client
         .setup(RSA_DEC_ELF)
         .expect("failed to setup rsa_dec elf");
-    bench("rsa_dec", client, &pk_dec, res_dir, message, || {
-        let mut stdin = SP1Stdin::new();
-        stdin.write(&encrypted);
-        stdin.write(&n);
-        stdin.write(&d);
-        stdin
-    });
+    bench(
+        "rsa_dec",
+        client,
+        &pk_dec,
+        &family_results_path(res_dir, RSA_DEC),
+        message,
+        || {
+            let mut stdin = SP1Stdin::new();
+            stdin.write(&encrypted);
+            stdin.write(&n);
+            stdin.write(&d);
+            stdin
+        },
+    );
+}
+
+fn bench_horner<P: Prover>(client: &P, res_dir: &Path) {
+    let res_dir = family_results_path(res_dir, HORNER);
+    let x: u64 = 3;
+    let pk = client
+        .setup(HORNER_ELF)
+        .expect("failed to setup horner elf");
+    let mut cases = HORNER_CASES.to_vec();
+    cases.sort_by_key(|&(n, _)| n);
+    for (n, expected) in cases {
+        bench(
+            &format!("horner_{}", n),
+            client,
+            &pk,
+            &res_dir,
+            expected,
+            move || {
+                let mut stdin = SP1Stdin::new();
+                stdin.write(&n);
+                stdin.write(&x);
+                stdin
+            },
+        );
+    }
+}
+
+fn bench_range_proof<P: Prover>(client: &P, res_dir: &Path) {
+    let x: u64 = 521;
+    let lower: u64 = 10;
+    let upper: u64 = 1_000;
+    let in_range: u64 = 2;
+
+    let pk = client
+        .setup(RANGE_PROOF_ELF)
+        .expect("failed to setup range_proof elf");
+    bench(
+        RANGE_PROOF,
+        client,
+        &pk,
+        &family_results_path(res_dir, RANGE_PROOF),
+        in_range,
+        || {
+            let mut stdin = SP1Stdin::new();
+            stdin.write(&x);
+            stdin.write(&lower);
+            stdin.write(&upper);
+            stdin
+        },
+    );
 }
 
 fn main() {
@@ -136,9 +233,14 @@ fn main() {
         .unwrap()
         .join("results");
     fs::create_dir_all(&res_dir).unwrap();
+    for family in [FIB, RSA_ENC, RSA_DEC, HORNER, RANGE_PROOF] {
+        fs::write(family_results_path(&res_dir, family), "").unwrap();
+    }
 
     let client = ProverClient::from_env();
 
     bench_fib(&client, &res_dir);
     bench_rsa(&client, &res_dir);
+    bench_horner(&client, &res_dir);
+    bench_range_proof(&client, &res_dir);
 }

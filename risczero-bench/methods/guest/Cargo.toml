@@ -17,5 +17,13 @@ path = "src/rsa_enc.rs"
 name = "rsa_dec"
 path = "src/rsa_dec.rs"
 
+[[bin]]
+name = "range_proof"
+path = "src/range_proof.rs"
+
+[[bin]]
+name = "horner"
+path = "src/horner.rs"
+
 [dependencies]
 risc0-zkvm = { version = "^3.0.5", default-features = false, features = ['std'] }

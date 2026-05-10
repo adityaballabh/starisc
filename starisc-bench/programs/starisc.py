@@ -8,3 +8,7 @@ def public(slot: int) -> int:
 
 def claim(var: int) -> None:
     pass
+
+
+def const(name: str) -> int:
+    return 0

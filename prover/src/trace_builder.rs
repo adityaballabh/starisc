@@ -7,18 +7,31 @@ use vm::{Instruction, Trace};
 use winterfell::math::{FieldElement, StarkField};
 use winterfell::TraceTable;
 
+const NO_SRC: u64 = 0;
+const QUOT_ONE: u64 = 1;
+const NO_WRAP: u64 = 0;
+const ASSERT_OK: u64 = 1;
+const JZ_RES: u64 = 1;
+const INACTIVE: u64 = 0;
+const INACTIVE_RANGE: u64 = 0;
+
 pub fn get_trace_len(prog: &[Instruction]) -> usize {
     // +1 for initial row. winterfell restriction: min 8 and power of 2
     (prog.len() + 1).next_power_of_two().max(32)
 }
 
-fn get_ops(regs: &[u64; 16], s1: u8, s2: u8) -> (u64, u64) {
-    (regs[s1 as usize], regs[s2 as usize])
+fn get_ops(regs: &[u64; 16], left_reg: u8, right_reg: u8) -> (u64, u64) {
+    (regs[left_reg as usize], regs[right_reg as usize])
 }
 
-fn perform_binary_op(regs: &[u64; 16], s1: u8, s2: u8, op: fn(u64, u64) -> u64) -> (u64, u64, u64) {
-    let (a, b) = get_ops(regs, s1, s2);
-    (a, b, op(a, b))
+fn perform_binary_op(
+    regs: &[u64; 16],
+    left_reg: u8,
+    right_reg: u8,
+    op: fn(u64, u64) -> u64,
+) -> (u64, u64, u64) {
+    let (left, right) = get_ops(regs, left_reg, right_reg);
+    (left, right, op(left, right))
 }
 
 fn add_wrap(a: u64, b: u64) -> u64 {
@@ -57,66 +70,85 @@ pub fn build_trace(prog: &[Instruction], vm_trace: &Trace) -> TraceTable<Felt> {
 
         let prev_regs: [u64; 16] = from_fn(|r| cols[r][out_row - 1].as_int() as u64);
 
-        let (s1, s2, mut res, mut quot, mut wrap) = match instr {
-            Instruction::Set { val, .. } => (0, 0, *val, 1, 0),
-            Instruction::ReadPriv { dest, .. } | Instruction::ReadPub { dest, .. } => {
-                (0, 0, row.registers[*dest as usize], 1, 0)
-            }
+        let (src1_val, src2_val, mut res, mut quot, mut wrap) = match instr {
+            Instruction::Set { val, .. } => (NO_SRC, NO_SRC, *val, QUOT_ONE, NO_WRAP),
+            Instruction::ReadPriv { dest, .. } | Instruction::ReadPub { dest, .. } => (
+                NO_SRC,
+                NO_SRC,
+                row.registers[*dest as usize],
+                QUOT_ONE,
+                NO_WRAP,
+            ),
             Instruction::Add { src1, src2, .. } => {
-                let (s1, s2, res) = perform_binary_op(&prev_regs, *src1, *src2, u64::wrapping_add);
-                (s1, s2, res, 1, add_wrap(s1, s2))
+                let (left, right, res) =
+                    perform_binary_op(&prev_regs, *src1, *src2, u64::wrapping_add);
+                (left, right, res, QUOT_ONE, add_wrap(left, right))
             }
             Instruction::Sub { src1, src2, .. } => {
-                let (s1, s2, res) = perform_binary_op(&prev_regs, *src1, *src2, u64::wrapping_sub);
-                (s1, s2, res, 1, sub_wrap(s1, s2))
+                let (left, right, res) =
+                    perform_binary_op(&prev_regs, *src1, *src2, u64::wrapping_sub);
+                (left, right, res, QUOT_ONE, sub_wrap(left, right))
             }
             Instruction::Mul { src1, src2, .. } => {
-                let (s1, s2, res) = perform_binary_op(&prev_regs, *src1, *src2, u64::wrapping_mul);
-                (s1, s2, res, 1, mul_wrap(s1, s2))
+                let (left, right, res) =
+                    perform_binary_op(&prev_regs, *src1, *src2, u64::wrapping_mul);
+                (left, right, res, QUOT_ONE, mul_wrap(left, right))
             }
             Instruction::AssertEq { r1, r2 } => {
-                let (a, b) = get_ops(&prev_regs, *r1, *r2);
+                let (left, right) = get_ops(&prev_regs, *r1, *r2);
                 // Store 1 on ASSERT_EQ rows so the equality constraint keeps a stable degree.
-                (a, b, 1, 1, 0)
+                (left, right, ASSERT_OK, QUOT_ONE, NO_WRAP)
             }
             Instruction::Mod { src1, src2, .. } => {
-                let (a, b) = get_ops(&prev_regs, *src1, *src2);
+                let (left, right) = get_ops(&prev_regs, *src1, *src2);
                 // Store quotient + 1 so the MOD quotient witness is never identically zero.
-                (a, b, a % b, (a / b) + 1, 0)
+                if active {
+                    (
+                        left,
+                        right,
+                        left % right,
+                        (left / right) + QUOT_ONE,
+                        NO_WRAP,
+                    )
+                } else {
+                    (left, right, INACTIVE, QUOT_ONE, NO_WRAP)
+                }
             }
             Instruction::Lt { src1, src2, .. } => {
-                let (a, b) = get_ops(&prev_regs, *src1, *src2);
-                (a, b, (a < b) as u64, 1, 0)
+                let (left, right) = get_ops(&prev_regs, *src1, *src2);
+                (left, right, (left < right) as u64, QUOT_ONE, NO_WRAP)
             }
             Instruction::Jz { cond, .. } => {
-                let c = prev_regs[*cond as usize];
-                (c, 0, 1, 1, 0)
+                let cond_val = prev_regs[*cond as usize];
+                (cond_val, NO_SRC, JZ_RES, QUOT_ONE, NO_WRAP)
             }
         };
         if !active {
-            res = 0;
-            quot = 1;
-            wrap = 0;
+            res = INACTIVE;
+            quot = QUOT_ONE;
+            wrap = NO_WRAP;
         }
-        cols[SRC1_COL][out_row] = Felt::from(s1);
-        cols[SRC2_COL][out_row] = Felt::from(s2);
+        cols[SRC1_COL][out_row] = Felt::from(src1_val);
+        cols[SRC2_COL][out_row] = Felt::from(src2_val);
         cols[RES_COL][out_row] = Felt::from(res);
         cols[QUOT_COL][out_row] = Felt::from(quot);
         cols[COND_COL][out_row] = if matches!(instr, Instruction::Jz { .. }) {
-            Felt::from(s1)
+            Felt::from(src1_val)
         } else {
             Felt::ZERO
         };
 
         // bit decomposition. lt/mod rows decompose a comparison diff, all others decompose res.
-        let decomp_val = if matches!(instr, Instruction::Lt { .. }) {
+        let decomp_val = if !active {
+            INACTIVE_RANGE
+        } else if matches!(instr, Instruction::Lt { .. }) {
             if res == 1 {
-                s2 - s1 - 1
+                src2_val - src1_val - 1
             } else {
-                s1 - s2
+                src1_val - src2_val
             }
         } else if matches!(instr, Instruction::Mod { .. }) {
-            s2 - res - 1
+            src2_val - res - 1
         } else {
             res
         };
@@ -127,7 +159,7 @@ pub fn build_trace(prog: &[Instruction], vm_trace: &Trace) -> TraceTable<Felt> {
 
         if active {
             skip_countdown = match instr {
-                Instruction::Jz { offset, .. } if s1 == 0 => *offset,
+                Instruction::Jz { offset, .. } if src1_val == 0 => *offset,
                 _ => 0,
             };
         } else {

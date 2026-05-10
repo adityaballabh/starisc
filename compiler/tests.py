@@ -450,7 +450,109 @@ class TestUnsupported(unittest.TestCase):
 
     def test_for_variable_range_raises(self):
         with self.assertRaises(TypeError):
-            compile_first_stage("n = 3\nfor i in range(n):\n    x = i")
+            compile_first_stage(
+                "from starisc import private\nn = private(0)\nfor i in range(n):\n    x = i"
+            )
+
+    def test_for_loop_index_in_expression(self):
+        self.assertEqual(
+            compile_first_stage("acc = 0\nfor i in range(3):\n    acc = acc + (i + 1)"),
+            [
+                Op("SET", "acc", "0"),
+                Op("SET", "t0", "0"),
+                Op("SET", "t1", "1"),
+                Op("ADD", "t2", "t0", "t1"),
+                Op("ADD", "acc", "acc", "t2"),
+                Op("SET", "t3", "1"),
+                Op("SET", "t4", "1"),
+                Op("ADD", "t5", "t3", "t4"),
+                Op("ADD", "acc", "acc", "t5"),
+                Op("SET", "t6", "2"),
+                Op("SET", "t7", "1"),
+                Op("ADD", "t8", "t6", "t7"),
+                Op("ADD", "acc", "acc", "t8"),
+            ],
+        )
+
+    def test_for_loop_uses_compile_time_const_bound(self):
+        self.assertEqual(
+            compile_first_stage(
+                'N = const("N")\nacc = 0\nfor i in range(N):\n    acc = acc + 1',
+                {"N": 3},
+            ),
+            [
+                Op("SET", "acc", "0"),
+                Op("SET", "t0", "1"),
+                Op("ADD", "acc", "acc", "t0"),
+                Op("SET", "t1", "1"),
+                Op("ADD", "acc", "acc", "t1"),
+                Op("SET", "t2", "1"),
+                Op("ADD", "acc", "acc", "t2"),
+            ],
+        )
+
+    def test_compile_time_const_in_expression_inlines_value(self):
+        self.assertEqual(
+            compile_first_stage('N = const("N")\nx = N + 1', {"N": 3}),
+            [
+                Op("SET", "t0", "3"),
+                Op("SET", "t1", "1"),
+                Op("ADD", "x", "t0", "t1"),
+            ],
+        )
+
+    def test_branch_assignment_invalidates_inline_const(self):
+        self.assertEqual(
+            compile_first_stage(
+                "from starisc import private\n"
+                'N = const("N")\n'
+                "flag = private(0)\n"
+                "if flag:\n"
+                "    N = 5\n"
+                "x = N",
+                {"N": 3},
+            ),
+            [
+                Op("READ_PRIV", "flag", "0"),
+                Op("LT", "t0", "r0", "flag"),
+                Op("JZ", "t0", "1"),
+                Op("SET", "N", "5"),
+                Op("SET", "x", "N"),
+            ],
+        )
+
+    def test_if_with_const_only_body_emits_no_jump(self):
+        self.assertEqual(
+            compile_to_op(
+                "from starisc import private, const, claim\n"
+                "flag = private(0)\n"
+                "if flag:\n"
+                '    N = const("N")\n'
+                "x = 1\n"
+                "claim(x)",
+                {"N": 3},
+            ),
+            "SET r1 1",
+        )
+
+    def test_nested_for_same_name_restores_outer_index(self):
+        self.assertEqual(
+            compile_first_stage(
+                "for i in range(2):\n    for i in range(2):\n        x = i\n    y = i"
+            ),
+            [
+                Op("SET", "x", "0"),
+                Op("SET", "x", "1"),
+                Op("SET", "y", "0"),
+                Op("SET", "x", "0"),
+                Op("SET", "x", "1"),
+                Op("SET", "y", "1"),
+            ],
+        )
+
+    def test_missing_const_raises(self):
+        with self.assertRaises(TypeError):
+            compile_first_stage('N = const("N")')
 
     def test_and_condition_raises(self):
         with self.assertRaises(NotImplementedError):
@@ -608,6 +710,18 @@ class TestBackendPipeline(unittest.TestCase):
             compile_to_op("x = 1\ny = 2\nassert x == x"), "SET r1 1\nASSERT_EQ r1 r1"
         )
 
+    def test_dead_assignment_in_jump_span_preserves_offset(self):
+        self.assertEqual(
+            compile_to_op("x = 1\nif x < 2:\n    y = 3\nassert x == x"),
+            "SET r1 1\nSET r2 2\nLT r2 r1 r2\nJZ r2 1\nSET r2 3\nASSERT_EQ r1 r1",
+        )
+
+    def test_coalesced_copy_in_jump_span_preserves_offset(self):
+        self.assertEqual(
+            compile_to_op("x = 1\nif x < 2:\n    y = x\nz = 9\nclaim(z)"),
+            "SET r1 1\nSET r2 2\nLT r2 r1 r2\nJZ r2 1\nADD r1 r1 r0\nSET r1 9",
+        )
+
 
 class TestInputs(unittest.TestCase):
     def test_private_input_flattens(self):
@@ -661,21 +775,21 @@ class TestInputs(unittest.TestCase):
 
 
 class TestClaim(unittest.TestCase):
-    def test_output_flattens(self):
+    def test_claim_flattens(self):
         self.assertEqual(
             compile_first_stage("x = 5\nclaim(x)"),
             [Op("SET", "x", "5"), Op("CLAIM", "x")],
         )
 
-    def test_output_prevents_dce(self):
+    def test_claim_prevents_dce(self):
         op = compile_to_op("x = private(0)\ny = private(1)\nz = x + y\nclaim(z)")
         self.assertIn("ADD", op)
 
-    def test_output_emits_no_instruction(self):
+    def test_claim_emits_no_instruction(self):
         op = compile_to_op("x = private(0)\nclaim(x)")
         self.assertEqual(op, "READ_PRIV r1 0")
 
-    def test_without_output_dce_removes(self):
+    def test_without_claim_dce_removes(self):
         op = compile_to_op("x = private(0)\ny = private(1)\nz = x + y")
         self.assertEqual(op, "")
 

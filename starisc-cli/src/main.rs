@@ -10,8 +10,19 @@ use std::process;
 use std::time::Instant;
 use vm::parse_file;
 
+const CLI: &str = "starisc";
+const SYMBOLS: &str = "symbols";
+const REG_PREFIX: char = 'r';
+const CLAIM_SEP: char = '=';
+const PROOF_EXT: &str = "proof";
+const KB: usize = 1024;
+const MS_PER_SEC: f64 = 1000.0;
+const CLAIM_FLAG: &str = "--claim";
+const PROVE_MS: &str = "prove_ms";
+const VERIFY_MS: &str = "verify_ms";
+
 #[derive(Parser)]
-#[command(name = "starisc")]
+#[command(name = CLI)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -31,6 +42,8 @@ enum Command {
         output: Option<String>,
         #[arg(long)]
         air_output: Option<String>,
+        #[arg(long)]
+        trace_output: Option<String>,
     },
     Verify {
         program: String,
@@ -44,14 +57,14 @@ enum Command {
 }
 
 fn load_symbols(op_path: &str) -> HashMap<String, u8> {
-    let symbols_path = Path::new(op_path).with_extension("symbols");
+    let symbols_path = Path::new(op_path).with_extension(SYMBOLS);
     let mut map = HashMap::new();
     if let Ok(content) = std::fs::read_to_string(&symbols_path) {
         for line in content.lines() {
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() == 2 {
                 if let Some(reg_num) = parts[1]
-                    .strip_prefix('r')
+                    .strip_prefix(REG_PREFIX)
                     .and_then(|n| n.parse::<u8>().ok())
                 {
                     map.insert(parts[0].to_string(), reg_num);
@@ -64,7 +77,7 @@ fn load_symbols(op_path: &str) -> HashMap<String, u8> {
 
 fn resolve_claim(s: &str, symbols: &HashMap<String, u8>) -> Result<Claim, String> {
     let (name, val_str) = s
-        .split_once('=')
+        .split_once(CLAIM_SEP)
         .ok_or("claim must be of the form <var>=<val>")?;
     let name = name.trim();
     let expected: u64 = val_str.trim().parse().map_err(|_| "invalid claim value")?;
@@ -84,6 +97,7 @@ fn main() {
             claim,
             output,
             air_output,
+            trace_output,
         } => {
             let prog = parse_file(&program).unwrap_or_else(|e| {
                 eprintln!("parse error: {e}");
@@ -99,7 +113,7 @@ fn main() {
             });
 
             if !private.is_empty() && claim.is_none() {
-                eprintln!("error: private inputs require a --claim");
+                eprintln!("error: private inputs require a {CLAIM_FLAG}");
                 process::exit(1);
             }
 
@@ -108,7 +122,7 @@ fn main() {
                 Some(c) => prove_with_claim(&prog, &private, &public, c),
                 None => prove_with_inputs(&prog, &private, &public),
             };
-            let prove_ms = timer.elapsed().as_secs_f64() * 1000.0;
+            let prove_ms = timer.elapsed().as_secs_f64() * MS_PER_SEC;
 
             let proof = proof.unwrap_or_else(|e| {
                 eprintln!("proving failed: {e}");
@@ -116,13 +130,13 @@ fn main() {
             });
 
             let bytes = proof.to_bytes();
-            let out_path = output.unwrap_or_else(|| format!("{}.proof", program));
+            let out_path = output.unwrap_or_else(|| format!("{}.{PROOF_EXT}", program));
             std::fs::write(&out_path, &bytes).unwrap_or_else(|e| {
                 eprintln!("failed to write proof: {e}");
                 process::exit(1);
             });
 
-            if let Some(path) = air_output {
+            if air_output.is_some() || trace_output.is_some() {
                 let air_prog = match claim {
                     Some(claim) => extend_with_claim(&prog, &claim),
                     None => prog.clone(),
@@ -132,14 +146,23 @@ fn main() {
                         eprintln!("failed to build AIR output trace: {e}");
                         process::exit(1);
                     });
-                write_air_table(&air_prog, &vm_trace, &path).unwrap_or_else(|e| {
-                    eprintln!("failed to write AIR output: {e}");
-                    process::exit(1);
-                });
+                if let Some(path) = trace_output {
+                    vm::write_trace_table(&air_prog, &vm_trace, &path).unwrap_or_else(|e| {
+                        eprintln!("failed to write trace output: {e}");
+                        process::exit(1);
+                    });
+                }
+
+                if let Some(path) = air_output {
+                    write_air_table(&air_prog, &vm_trace, &path).unwrap_or_else(|e| {
+                        eprintln!("failed to write AIR output: {e}");
+                        process::exit(1);
+                    });
+                }
             }
 
-            println!("proof written to {} ({}KB)", out_path, bytes.len() / 1024);
-            println!("prove_ms={prove_ms:.3}");
+            println!("proof written to {} ({}KB)", out_path, bytes.len() / KB);
+            println!("{PROVE_MS}={prove_ms:.3}");
         }
         Command::Verify {
             program,
@@ -175,12 +198,12 @@ fn main() {
                 Some(c) => verify_with_claim(&prog, proof, &public, c),
                 None => verify_with_inputs(&prog, proof, &public),
             };
-            let verify_ms = timer.elapsed().as_secs_f64() * 1000.0;
+            let verify_ms = timer.elapsed().as_secs_f64() * MS_PER_SEC;
 
             match result {
                 Ok(()) => {
                     println!("verification succeeded");
-                    println!("verify_ms={verify_ms:.3}");
+                    println!("{VERIFY_MS}={verify_ms:.3}");
                 }
                 Err(e) => {
                     eprintln!("verification failed: {e}");

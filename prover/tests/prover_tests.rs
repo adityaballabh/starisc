@@ -133,6 +133,23 @@ fn prove_verify_jz_to_end() {
 }
 
 #[test]
+fn prove_verify_skipped_mod_with_zero_divisor() {
+    assert_program_proves(
+        "JZ r0 1
+         MOD r1 r2 r0",
+    );
+}
+
+#[test]
+fn prove_verify_skipped_lt_with_unordered_operands() {
+    assert_program_proves(
+        "SET r2 5
+         JZ r0 1
+         LT r1 r0 r2",
+    );
+}
+
+#[test]
 fn prove_verify_all_ops() {
     let prog = load_program("all_ops");
     assert_prove_verify(&prog);
@@ -314,7 +331,7 @@ fn lt_with_max_u64() {
 mod test_modulo {
     use super::*;
     #[test]
-    fn mod_result_eq_0_1() {
+    fn mod_result_zero_when_operands_equal() {
         assert_program_proves(
             "SET r1 3
           SET r2 3
@@ -325,7 +342,7 @@ mod test_modulo {
     }
 
     #[test]
-    fn mod_result_happy_path() {
+    fn mod_result_remainder() {
         assert_program_proves(
             "SET r1 4
           SET r2 3
@@ -336,7 +353,7 @@ mod test_modulo {
     }
 
     #[test]
-    fn mod_result_same() {
+    fn mod_result_left_when_less_than_divisor() {
         assert_program_proves(
             "SET r1 3
           SET r2 4
@@ -347,7 +364,7 @@ mod test_modulo {
     }
 
     #[test]
-    fn mod_result_eq_0_2() {
+    fn mod_result_zero_when_divisor_is_one() {
         assert_program_proves(
             "SET r1 13137
           SET r2 1
