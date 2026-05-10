@@ -474,7 +474,7 @@ class TestUnsupported(unittest.TestCase):
             ],
         )
 
-    def test_for_loop_const_override_bound(self):
+    def test_for_loop_uses_compile_time_const_bound(self):
         self.assertEqual(
             compile_first_stage(
                 'N = const("N")\nacc = 0\nfor i in range(N):\n    acc = acc + 1',
@@ -491,7 +491,7 @@ class TestUnsupported(unittest.TestCase):
             ],
         )
 
-    def test_named_const_in_expression(self):
+    def test_compile_time_const_in_expression_inlines_value(self):
         self.assertEqual(
             compile_first_stage('N = const("N")\nx = N + 1', {"N": 3}),
             [
@@ -519,6 +519,20 @@ class TestUnsupported(unittest.TestCase):
                 Op("SET", "N", "5"),
                 Op("SET", "x", "N"),
             ],
+        )
+
+    def test_if_with_const_only_body_emits_no_jump(self):
+        self.assertEqual(
+            compile_to_op(
+                "from starisc import private, const, claim\n"
+                "flag = private(0)\n"
+                "if flag:\n"
+                '    N = const("N")\n'
+                "x = 1\n"
+                "claim(x)",
+                {"N": 3},
+            ),
+            "SET r1 1",
         )
 
     def test_nested_for_same_name_restores_outer_index(self):
@@ -761,21 +775,21 @@ class TestInputs(unittest.TestCase):
 
 
 class TestClaim(unittest.TestCase):
-    def test_output_flattens(self):
+    def test_claim_flattens(self):
         self.assertEqual(
             compile_first_stage("x = 5\nclaim(x)"),
             [Op("SET", "x", "5"), Op("CLAIM", "x")],
         )
 
-    def test_output_prevents_dce(self):
+    def test_claim_prevents_dce(self):
         op = compile_to_op("x = private(0)\ny = private(1)\nz = x + y\nclaim(z)")
         self.assertIn("ADD", op)
 
-    def test_output_emits_no_instruction(self):
+    def test_claim_emits_no_instruction(self):
         op = compile_to_op("x = private(0)\nclaim(x)")
         self.assertEqual(op, "READ_PRIV r1 0")
 
-    def test_without_output_dce_removes(self):
+    def test_without_claim_dce_removes(self):
         op = compile_to_op("x = private(0)\ny = private(1)\nz = x + y")
         self.assertEqual(op, "")
 

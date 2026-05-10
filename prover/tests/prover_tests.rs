@@ -331,7 +331,7 @@ fn lt_with_max_u64() {
 mod test_modulo {
     use super::*;
     #[test]
-    fn mod_result_eq_0_1() {
+    fn mod_result_zero_when_operands_equal() {
         assert_program_proves(
             "SET r1 3
           SET r2 3
@@ -342,7 +342,7 @@ mod test_modulo {
     }
 
     #[test]
-    fn mod_result_happy_path() {
+    fn mod_result_remainder() {
         assert_program_proves(
             "SET r1 4
           SET r2 3
@@ -353,7 +353,7 @@ mod test_modulo {
     }
 
     #[test]
-    fn mod_result_same() {
+    fn mod_result_left_when_less_than_divisor() {
         assert_program_proves(
             "SET r1 3
           SET r2 4
@@ -364,7 +364,7 @@ mod test_modulo {
     }
 
     #[test]
-    fn mod_result_eq_0_2() {
+    fn mod_result_zero_when_divisor_is_one() {
         assert_program_proves(
             "SET r1 13137
           SET r2 1

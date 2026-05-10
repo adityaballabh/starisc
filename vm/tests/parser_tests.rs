@@ -98,7 +98,7 @@ fn parse_lt() {
 }
 
 #[test]
-fn parse_jz() {
+fn parse_jz_with_offset() {
     let instr = parse_str("JZ r11 2\nSET r6 21\nSET r2 15").unwrap();
     assert_eq!(
         instr[0],
@@ -187,7 +187,7 @@ fn rejects_set_with_non_int() {
 }
 
 #[test]
-fn skips_non_op() {
+fn skips_comments_and_blank_lines() {
     let prog = parse_str("# should be skipped\n\nSET r1 1\n").unwrap();
     assert_eq!(prog.len(), 1);
 }
@@ -223,7 +223,7 @@ macro_rules! has_instr {
 }
 
 #[test]
-fn sample_op_covers_all_instr() {
+fn sample_op_covers_arithmetic_and_assert_instrs() {
     let prog = parse_file(&get_op_path("all_ops")).unwrap();
     has_instr!(prog, Instruction::Set);
     has_instr!(prog, Instruction::Add);

@@ -62,7 +62,7 @@ fn exec_lt_true() {
 }
 
 #[test]
-fn exec_lt_false_unique() {
+fn exec_lt_false_when_left_greater() {
     let prog = parse_str("SET r2 8\nSET r3 6\nLT r4 r2 r3").unwrap();
     let (_, regs) = execute(&prog).unwrap();
     assert_eq!(regs[4], 0);
@@ -100,7 +100,7 @@ fn exec_mod() {
 }
 
 #[test]
-fn exec_mod_err() {
+fn exec_mod_div_by_zero_err() {
     let prog = parse_str("SET r1 24\nMOD r3 r1 r0").unwrap();
     let err = execute(&prog).unwrap_err();
     assert_eq!(err.pc, 1);
@@ -216,7 +216,7 @@ fn sample_op_exec() {
 }
 
 #[test]
-fn empty_prog() {
+fn exec_empty_program() {
     let (trace, regs) = execute(&[]).unwrap();
     assert!(trace.is_empty());
     assert_eq!(regs, [0; 16]);

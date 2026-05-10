@@ -345,7 +345,7 @@ class Flattener(ast.NodeVisitor):
             self._ops.extend(then_ops)
             self._ops.append(Op(OP_JZ, ZERO_REGISTER, str(len(else_ops))))
             self._ops.extend(else_ops)
-        else:
+        elif then_ops:
             self._ops.append(Op(OP_JZ, condition, str(len(then_ops))))
             self._ops.extend(then_ops)
 
