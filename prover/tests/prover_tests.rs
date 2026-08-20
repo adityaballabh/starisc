@@ -373,6 +373,14 @@ mod test_modulo {
           ASSERT_EQ r3 r4",
         );
     }
+
+    #[test]
+    fn mod_max_u64_by_one() {
+        assert_program_proves(&format!(
+            "SET r1 {}\nSET r2 1\nMOD r3 r1 r2\nSET r4 0\nASSERT_EQ r3 r4",
+            u64::MAX
+        ));
+    }
 }
 
 mod test_tamper_trace {

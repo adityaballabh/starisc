@@ -1,6 +1,7 @@
 use crate::{
-    Felt, ACTIVE_COL, COND_COL, NUM_RANGE_BITS, NUM_REGISTERS, QUOT_COL, RANGE_BITS_BASE, RES_COL,
-    SKIP_COUNTDOWN_COL, SKIP_COUNTDOWN_INV_COL, SRC1_COL, SRC2_COL, TRACE_WIDTH, WRAP_BITS_BASE,
+    Felt, ACTIVE_COL, COND_COL, MOD_RES_BITS_BASE, NUM_RANGE_BITS, NUM_REGISTERS, QUOT_COL,
+    RANGE_BITS_BASE, RES_COL, SKIP_COUNTDOWN_COL, SKIP_COUNTDOWN_INV_COL, SRC1_COL, SRC2_COL,
+    TRACE_WIDTH, WRAP_BITS_BASE,
 };
 use std::array::from_fn;
 use vm::{Instruction, Trace};
@@ -8,7 +9,7 @@ use winterfell::math::{FieldElement, StarkField};
 use winterfell::TraceTable;
 
 const NO_SRC: u64 = 0;
-const QUOT_ONE: u64 = 1;
+const NO_QUOT: u64 = 0;
 const NO_WRAP: u64 = 0;
 const ASSERT_OK: u64 = 1;
 const JZ_RES: u64 = 1;
@@ -71,67 +72,62 @@ pub fn build_trace(prog: &[Instruction], vm_trace: &Trace) -> TraceTable<Felt> {
         let prev_regs: [u64; 16] = from_fn(|r| cols[r][out_row - 1].as_int() as u64);
 
         let (src1_val, src2_val, mut res, mut quot, mut wrap) = match instr {
-            Instruction::Set { val, .. } => (NO_SRC, NO_SRC, *val, QUOT_ONE, NO_WRAP),
+            Instruction::Set { val, .. } => (NO_SRC, NO_SRC, *val, NO_QUOT, NO_WRAP),
             Instruction::ReadPriv { dest, .. } | Instruction::ReadPub { dest, .. } => (
                 NO_SRC,
                 NO_SRC,
                 row.registers[*dest as usize],
-                QUOT_ONE,
+                NO_QUOT,
                 NO_WRAP,
             ),
             Instruction::Add { src1, src2, .. } => {
                 let (left, right, res) =
                     perform_binary_op(&prev_regs, *src1, *src2, u64::wrapping_add);
-                (left, right, res, QUOT_ONE, add_wrap(left, right))
+                (left, right, res, NO_QUOT, add_wrap(left, right))
             }
             Instruction::Sub { src1, src2, .. } => {
                 let (left, right, res) =
                     perform_binary_op(&prev_regs, *src1, *src2, u64::wrapping_sub);
-                (left, right, res, QUOT_ONE, sub_wrap(left, right))
+                (left, right, res, NO_QUOT, sub_wrap(left, right))
             }
             Instruction::Mul { src1, src2, .. } => {
                 let (left, right, res) =
                     perform_binary_op(&prev_regs, *src1, *src2, u64::wrapping_mul);
-                (left, right, res, QUOT_ONE, mul_wrap(left, right))
+                (left, right, res, NO_QUOT, mul_wrap(left, right))
             }
             Instruction::AssertEq { r1, r2 } => {
                 let (left, right) = get_ops(&prev_regs, *r1, *r2);
                 // Store 1 on ASSERT_EQ rows so the equality constraint keeps a stable degree.
-                (left, right, ASSERT_OK, QUOT_ONE, NO_WRAP)
+                (left, right, ASSERT_OK, NO_QUOT, NO_WRAP)
             }
             Instruction::Mod { src1, src2, .. } => {
                 let (left, right) = get_ops(&prev_regs, *src1, *src2);
-                // Store quotient + 1 so the MOD quotient witness is never identically zero.
                 if active {
-                    (
-                        left,
-                        right,
-                        left % right,
-                        (left / right) + QUOT_ONE,
-                        NO_WRAP,
-                    )
+                    let quotient = left / right;
+                    (left, right, left % right, quotient, quotient)
                 } else {
-                    (left, right, INACTIVE, QUOT_ONE, NO_WRAP)
+                    (left, right, INACTIVE, NO_QUOT, NO_WRAP)
                 }
             }
             Instruction::Lt { src1, src2, .. } => {
                 let (left, right) = get_ops(&prev_regs, *src1, *src2);
-                (left, right, (left < right) as u64, QUOT_ONE, NO_WRAP)
+                (left, right, (left < right) as u64, NO_QUOT, NO_WRAP)
             }
             Instruction::Jz { cond, .. } => {
                 let cond_val = prev_regs[*cond as usize];
-                (cond_val, NO_SRC, JZ_RES, QUOT_ONE, NO_WRAP)
+                (cond_val, NO_SRC, JZ_RES, NO_QUOT, NO_WRAP)
             }
         };
         if !active {
             res = INACTIVE;
-            quot = QUOT_ONE;
+            quot = NO_QUOT;
             wrap = NO_WRAP;
         }
         cols[SRC1_COL][out_row] = Felt::from(src1_val);
         cols[SRC2_COL][out_row] = Felt::from(src2_val);
         cols[RES_COL][out_row] = Felt::from(res);
-        cols[QUOT_COL][out_row] = Felt::from(quot);
+        // Offset q so Winterfell's exact degree check stays stable when every quotient is zero.
+        cols[QUOT_COL][out_row] = Felt::from(quot) + Felt::ONE;
         cols[COND_COL][out_row] = if matches!(instr, Instruction::Jz { .. }) {
             Felt::from(src1_val)
         } else {
@@ -152,9 +148,15 @@ pub fn build_trace(prog: &[Instruction], vm_trace: &Trace) -> TraceTable<Felt> {
         } else {
             res
         };
+        let mod_res = if active && matches!(instr, Instruction::Mod { .. }) {
+            res
+        } else {
+            0
+        };
         for bit in 0..NUM_RANGE_BITS {
             cols[RANGE_BITS_BASE + bit][out_row] = Felt::from((decomp_val >> bit) & 1);
             cols[WRAP_BITS_BASE + bit][out_row] = Felt::from((wrap >> bit) & 1);
+            cols[MOD_RES_BITS_BASE + bit][out_row] = Felt::from((mod_res >> bit) & 1);
         }
 
         if active {
@@ -191,9 +193,17 @@ pub fn build_trace(prog: &[Instruction], vm_trace: &Trace) -> TraceTable<Felt> {
         {
             *value = Felt::ZERO;
         }
+        for value in cols[MOD_RES_BITS_BASE + bit]
+            .iter_mut()
+            .take(trace_len)
+            .skip(n + 1)
+        {
+            *value = Felt::ZERO;
+        }
         if n + 1 < trace_len {
             cols[RANGE_BITS_BASE + bit][trace_len - 1] = Felt::ONE;
             cols[WRAP_BITS_BASE + bit][trace_len - 1] = Felt::ONE;
+            cols[MOD_RES_BITS_BASE + bit][trace_len - 1] = Felt::ONE;
         }
     }
     cols[ACTIVE_COL][n..trace_len].fill(Felt::ONE);
