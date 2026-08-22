@@ -270,11 +270,13 @@ class Backend:
         allocated = apply_allocation(optimized, allocation)
         return emit_ops(allocated)
 
-    def run_with_symbols(self, ops: list[Op]) -> tuple[str, dict[str, str]]:
+    def run_with_symbols(
+        self, ops: list[Op], assigned_names: set[str]
+    ) -> tuple[str, dict[str, str]]:
         optimized = optimize_ops(ops)
         allocation = allocate_registers(optimized)
         allocated = apply_allocation(optimized, allocation)
         symbols = {
-            name: reg for name, reg in allocation.items() if not name.startswith("t")
+            name: reg for name, reg in allocation.items() if name in assigned_names
         }
         return emit_ops(allocated), symbols

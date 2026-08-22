@@ -18,6 +18,7 @@ FUNC_RANGE = "range"
 
 BOOL_ONE = "1"
 ZERO_REGISTER = "r0"
+U64_MAX = (1 << 64) - 1
 
 FIRST_ALLOC_REG = 1
 LAST_ALLOC_REG = 15
