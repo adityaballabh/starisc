@@ -39,10 +39,14 @@ jobs:
           python-version: "3.13"
       - uses: astral-sh/ruff-action@v3
         with:
-          args: "check compiler/"
+          version: "0.15.13"
+          args: "check"
+          src: "compiler/"
       - uses: astral-sh/ruff-action@v3
         with:
-          args: "format --check compiler/"
+          version: "0.15.13"
+          args: "format --check"
+          src: "compiler/"
 
   python-test:
     runs-on: ubuntu-latest
