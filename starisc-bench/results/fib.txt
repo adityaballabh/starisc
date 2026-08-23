@@ -1,32 +1,32 @@
 ===== fib_8 =====
-run 1: prove=2.671ms  verify=0.426ms  proof=59KB
-run 2: prove=2.200ms  verify=0.332ms  proof=59KB
-run 3: prove=2.213ms  verify=0.336ms  proof=59KB
-run 4: prove=2.185ms  verify=0.331ms  proof=59KB
-run 5: prove=2.166ms  verify=0.320ms  proof=59KB
-avg(5): prove=2.287ms  verify=0.349ms  proof=59KB
+run 1: prove=7.026ms  verify=0.731ms  proof=85KB
+run 2: prove=5.830ms  verify=0.695ms  proof=85KB
+run 3: prove=4.568ms  verify=0.553ms  proof=85KB
+run 4: prove=3.998ms  verify=0.352ms  proof=85KB
+run 5: prove=2.532ms  verify=0.339ms  proof=85KB
+avg(5): prove=4.791ms  verify=0.534ms  proof=85KB
 
 ===== fib_32 =====
-run 1: prove=9.160ms  verify=0.579ms  proof=68KB
-run 2: prove=9.238ms  verify=0.631ms  proof=68KB
-run 3: prove=9.150ms  verify=0.640ms  proof=68KB
-run 4: prove=9.258ms  verify=0.569ms  proof=68KB
-run 5: prove=9.049ms  verify=0.632ms  proof=68KB
-avg(5): prove=9.171ms  verify=0.610ms  proof=68KB
+run 1: prove=11.130ms  verify=0.598ms  proof=92KB
+run 2: prove=11.026ms  verify=0.622ms  proof=92KB
+run 3: prove=11.287ms  verify=0.611ms  proof=92KB
+run 4: prove=11.244ms  verify=0.598ms  proof=92KB
+run 5: prove=11.039ms  verify=0.608ms  proof=92KB
+avg(5): prove=11.145ms  verify=0.607ms  proof=92KB
 
 ===== fib_128 =====
-run 1: prove=41.999ms  verify=1.677ms  proof=76KB
-run 2: prove=41.801ms  verify=1.626ms  proof=76KB
-run 3: prove=41.824ms  verify=1.636ms  proof=76KB
-run 4: prove=42.378ms  verify=1.631ms  proof=76KB
-run 5: prove=41.761ms  verify=1.683ms  proof=76KB
-avg(5): prove=41.953ms  verify=1.651ms  proof=76KB
+run 1: prove=50.515ms  verify=1.529ms  proof=99KB
+run 2: prove=50.714ms  verify=1.510ms  proof=99KB
+run 3: prove=50.364ms  verify=1.513ms  proof=99KB
+run 4: prove=51.549ms  verify=1.530ms  proof=99KB
+run 5: prove=50.450ms  verify=1.511ms  proof=99KB
+avg(5): prove=50.718ms  verify=1.519ms  proof=99KB
 
 ===== fib_512 =====
-run 1: prove=191.366ms  verify=6.131ms  proof=80KB
-run 2: prove=190.800ms  verify=6.180ms  proof=80KB
-run 3: prove=190.126ms  verify=6.104ms  proof=80KB
-run 4: prove=188.783ms  verify=6.137ms  proof=80KB
-run 5: prove=188.313ms  verify=6.182ms  proof=80KB
-avg(5): prove=189.878ms  verify=6.147ms  proof=80KB
+run 1: prove=225.834ms  verify=5.310ms  proof=105KB
+run 2: prove=224.846ms  verify=5.279ms  proof=105KB
+run 3: prove=223.891ms  verify=5.252ms  proof=105KB
+run 4: prove=228.732ms  verify=5.421ms  proof=105KB
+run 5: prove=223.654ms  verify=5.483ms  proof=105KB
+avg(5): prove=225.391ms  verify=5.349ms  proof=105KB
 

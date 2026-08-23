@@ -268,11 +268,37 @@ pub fn verify_with_claim(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::trace_builder::build_trace;
-    use crate::RES_COL;
+    use crate::trace_builder::{build_trace, get_trace_len};
+    use crate::{MOD_RES_BITS_BASE, QUOT_COL, RANGE_BITS_BASE, RES_COL, WRAP_BITS_BASE};
     use test_utils::{assert_proof_rejected, get_op_path};
-    use vm::parse_file;
+    use vm::{parse_file, parse_str};
     use winterfell::math::FieldElement;
+
+    const MOD_DEST: usize = 3;
+    const MOD_TRACE_ROW: usize = 3;
+
+    fn set_mod_result(trace: &mut TraceTable<Felt>, trace_len: usize, value: Felt) {
+        trace.set(RES_COL, MOD_TRACE_ROW, value);
+        for row in MOD_TRACE_ROW..trace_len {
+            trace.set(MOD_DEST, row, value);
+        }
+    }
+
+    fn assert_malformed_trace_rejected(prog: Vec<Instruction>, trace: TraceTable<Felt>) {
+        let (bits_used, wrap_bits_used) = conservative_bits(&prog);
+        let prover = VmProver::new(
+            &prog,
+            &[],
+            bits_used,
+            wrap_bits_used,
+            conservative_flags(&prog),
+        );
+        let prog_clone = prog.clone();
+        assert_proof_rejected(
+            move || prover.prove(trace),
+            |proof| verify(&prog_clone, proof),
+        );
+    }
 
     /// malicious prover trying to inject a value > u64::MAX into the trace
     #[test]
@@ -295,5 +321,58 @@ mod tests {
             move || prover.prove(trace_clone),
             |proof| verify(&prog_clone, proof),
         );
+    }
+
+    #[test]
+    fn rejects_non_integer_mod_quotient() {
+        let prog = parse_str("SET r1 5\nSET r2 3\nMOD r3 r1 r2").unwrap();
+        let (vm_trace, _) = vm::execute(&prog).unwrap();
+        let trace_len = get_trace_len(&prog);
+        let mut trace = build_trace(&prog, &vm_trace);
+
+        set_mod_result(&mut trace, trace_len, Felt::ZERO);
+        trace.set(
+            QUOT_COL,
+            MOD_TRACE_ROW,
+            Felt::from(5u64) * Felt::from(3u64).inv() + Felt::ONE,
+        );
+        trace.set(RANGE_BITS_BASE + 1, MOD_TRACE_ROW, Felt::ONE);
+        trace.set(MOD_RES_BITS_BASE + 1, MOD_TRACE_ROW, Felt::ZERO);
+
+        assert_malformed_trace_rejected(prog, trace);
+    }
+
+    /// Integer q alone is insufficient: q = 2 gives a field-wrapped remainder of -1.
+    #[test]
+    fn rejects_field_wrapped_mod_remainder() {
+        let prog = parse_str("SET r1 5\nSET r2 3\nMOD r3 r1 r2").unwrap();
+        let (vm_trace, _) = vm::execute(&prog).unwrap();
+        let trace_len = get_trace_len(&prog);
+        let mut trace = build_trace(&prog, &vm_trace);
+
+        set_mod_result(&mut trace, trace_len, Felt::ZERO - Felt::ONE);
+        trace.set(QUOT_COL, MOD_TRACE_ROW, Felt::from(3u64));
+        trace.set(WRAP_BITS_BASE, MOD_TRACE_ROW, Felt::ZERO);
+        trace.set(WRAP_BITS_BASE + 1, MOD_TRACE_ROW, Felt::ONE);
+        trace.set(RANGE_BITS_BASE, MOD_TRACE_ROW, Felt::ONE);
+        trace.set(RANGE_BITS_BASE + 1, MOD_TRACE_ROW, Felt::ONE);
+
+        assert_malformed_trace_rejected(prog, trace);
+    }
+
+    #[test]
+    fn rejects_out_of_range_private_read() {
+        let prog = parse_str("READ_PRIV r1 0").unwrap();
+        let (vm_trace, _) = vm::execute_with_inputs(&prog, &[0], &[]).unwrap();
+        let trace_len = get_trace_len(&prog);
+        let mut trace = build_trace(&prog, &vm_trace);
+        let out_of_range = Felt::from(u64::MAX) + Felt::ONE;
+
+        trace.set(RES_COL, 1, out_of_range);
+        for row in 1..trace_len {
+            trace.set(1, row, out_of_range);
+        }
+
+        assert_malformed_trace_rejected(prog, trace);
     }
 }

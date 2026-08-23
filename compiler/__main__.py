@@ -39,10 +39,8 @@ def main():
     program = input_path.read_text()
     op_text, symbols = compile_with_symbols(program, dict(args.consts))
     output_path.write_text(op_text + "\n")
-    if symbols:
-        symbols_path.write_text(
-            "\n".join(f"{name} {reg}" for name, reg in sorted(symbols.items())) + "\n"
-        )
+    symbols_text = "\n".join(f"{name} {reg}" for name, reg in sorted(symbols.items()))
+    symbols_path.write_text(symbols_text + ("\n" if symbols_text else ""))
 
 
 if __name__ == "__main__":

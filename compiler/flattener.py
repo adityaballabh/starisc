@@ -18,6 +18,7 @@ from .constants import (
     OP_READ_PUB,
     OP_SET,
     OP_SUB,
+    U64_MAX,
     ZERO_REGISTER,
 )
 from .op import Op
@@ -31,17 +32,40 @@ class Flattener(ast.NodeVisitor):
         self._next_temp = 0
         self._consts = dict(constants or {})
         self._assigned_names = set()
+        self._definitely_assigned_names = set()
         self._loop_consts = set()
         self._inline_consts = set()
+        self._source_names = set()
 
     def run(self, tree):
+        self._source_names = {
+            node.id for node in ast.walk(tree) if isinstance(node, ast.Name)
+        }
         self.visit(tree)
         return self._ops
+
+    @property
+    def assigned_names(self):
+        return set(self._assigned_names)
 
     def _incr_temp(self):
         temp_name = f"t{self._next_temp}"
         self._next_temp += 1
+        while temp_name in self._source_names:
+            temp_name = f"t{self._next_temp}"
+            self._next_temp += 1
         return temp_name
+
+    def _validate_u64(self, value, description="runtime literal"):
+        if type(value) is not int:
+            raise TypeError(f"{description} must be an integer")
+        if not 0 <= value <= U64_MAX:
+            raise ValueError(f"{description} must be between 0 and {U64_MAX}")
+        return value
+
+    def _require_defined(self, name):
+        if name not in self._definitely_assigned_names:
+            raise NameError(f"undefined identifier: {name}")
 
     def _emit_binary(self, opcode, left, right):
         lhs = self._flatten_expr(left)
@@ -66,7 +90,7 @@ class Flattener(ast.NodeVisitor):
 
     def _const_int(self, node):
         match node:
-            case ast.Constant(value=v) if isinstance(v, int):
+            case ast.Constant(value=v) if type(v) is int:
                 return v
             case ast.Name(id=name):
                 return self._consts.get(name)
@@ -88,6 +112,9 @@ class Flattener(ast.NodeVisitor):
                         return left_val * right_val
                     case _:
                         return None
+            case ast.UnaryOp(op=ast.USub(), operand=operand):
+                value = self._const_int(operand)
+                return -value if value is not None else None
             case _:
                 return None
 
@@ -95,23 +122,31 @@ class Flattener(ast.NodeVisitor):
         saved_ops = self._ops
         saved_consts = self._consts
         saved_assigned_names = self._assigned_names
+        saved_definitely_assigned_names = self._definitely_assigned_names
         saved_loop_consts = self._loop_consts
         saved_inline_consts = self._inline_consts
 
         self._ops = []
         self._consts = dict(consts)
         self._assigned_names = set()
+        self._definitely_assigned_names = set(saved_definitely_assigned_names)
         self._loop_consts = set(saved_loop_consts)
         self._inline_consts = set(saved_inline_consts)
 
         try:
             for stmt in statements:
                 self.visit(stmt)
-            return self._ops, self._consts, self._assigned_names
+            return (
+                self._ops,
+                self._consts,
+                self._assigned_names,
+                self._definitely_assigned_names,
+            )
         finally:
             self._ops = saved_ops
             self._consts = saved_consts
             self._assigned_names = saved_assigned_names
+            self._definitely_assigned_names = saved_definitely_assigned_names
             self._loop_consts = saved_loop_consts
             self._inline_consts = saved_inline_consts
 
@@ -162,15 +197,21 @@ class Flattener(ast.NodeVisitor):
         match node:
             case ast.Name(id=name):
                 if name in self._loop_consts or name in self._inline_consts:
+                    value = self._validate_u64(self._consts[name], f"value of {name}")
                     t = self._incr_temp()
-                    self._ops.append(Op(OP_SET, t, str(self._consts[name])))
+                    self._ops.append(Op(OP_SET, t, str(value)))
                     return t
+                self._require_defined(name)
                 return name
 
             case ast.Constant(value=v):
+                value = self._validate_u64(v)
                 t = self._incr_temp()
-                self._ops.append(Op(OP_SET, t, str(v)))
+                self._ops.append(Op(OP_SET, t, str(value)))
                 return t
+
+            case ast.UnaryOp(op=ast.USub()):
+                raise ValueError("runtime literal must be between 0 and u64::MAX")
 
             # (base ** exp) % mod -> perform MOD after each MUL
             case ast.BinOp(
@@ -179,17 +220,19 @@ class Flattener(ast.NodeVisitor):
                 right=mod_node,
             ):
                 exp = self._const_int(exp_node)
-                if exp is None or exp < 0:
+                if type(exp) is not int or not 0 <= exp <= U64_MAX:
                     raise TypeError(
-                        "exponent must be a non-negative integer constant, "
+                        "exponent must be a u64 integer constant, "
                         f"got {ast.dump(exp_node)}"
                     )
                 b = self._flatten_expr(base)
                 m = self._flatten_expr(mod_node)
                 if exp == 0:
-                    t = self._incr_temp()
-                    self._ops.append(Op(OP_SET, t, BOOL_ONE))
-                    return t
+                    one = self._incr_temp()
+                    self._ops.append(Op(OP_SET, one, BOOL_ONE))
+                    return self._emit_value_op(OP_MOD, one, m)
+                if exp == 1:
+                    return self._emit_value_op(OP_MOD, b, m)
                 res = b
                 bits = bin(exp)[2:]
                 for bit in bits[1:]:
@@ -210,9 +253,9 @@ class Flattener(ast.NodeVisitor):
             case ast.BinOp(left=base, op=ast.Pow(), right=exp_node):
                 # exponent must be a compile-time constant (otherwise loops are needed)
                 exp = self._const_int(exp_node)
-                if exp is None or exp < 0:
+                if type(exp) is not int or not 0 <= exp <= U64_MAX:
                     raise TypeError(
-                        "exponent must be a non-negative integer constant, "
+                        "exponent must be a u64 integer constant, "
                         f"got {ast.dump(exp_node)}"
                     )
                 b = self._flatten_expr(base)
@@ -259,8 +302,10 @@ class Flattener(ast.NodeVisitor):
                 args=[arg],
             ) if func_name in (FUNC_PRIVATE, FUNC_PUBLIC):
                 slot = self._const_int(arg)
-                if slot is None or slot < 0:
-                    raise TypeError(f"{func_name} slot must be a non-negative integer")
+                if type(slot) is not int:
+                    raise TypeError(f"{func_name} slot must be a u64 integer")
+                if not 0 <= slot <= U64_MAX:
+                    raise TypeError(f"{func_name} slot must be a u64 integer")
                 opcode = OP_READ_PRIV if func_name == FUNC_PRIVATE else OP_READ_PUB
                 t = self._incr_temp()
                 self._ops.append(Op(opcode, t, str(slot)))
@@ -273,6 +318,7 @@ class Flattener(ast.NodeVisitor):
                 value = self._consts.get(name)
                 if value is None:
                     raise TypeError(f"missing compile-time const: {name}")
+                value = self._validate_u64(value, f"compile-time const {name}")
                 t = self._incr_temp()
                 self._ops.append(Op(OP_SET, t, str(value)))
                 return t
@@ -322,21 +368,25 @@ class Flattener(ast.NodeVisitor):
         self._inline_consts.discard(dest)
 
     def visit_Assign(self, node):
+        if len(node.targets) != 1:
+            raise TypeError("chained assignment is not supported")
         dest = node.targets[0]
         if not isinstance(dest, ast.Name):
             raise TypeError(f"unsupported target: {type(dest).__name__}")
 
         self._assign_to(dest.id, node.value)
         self._assigned_names.add(dest.id)
+        self._definitely_assigned_names.add(dest.id)
 
     def visit_If(self, node):
         condition = self._flatten_condition(node.test)
         consts_after_condition = dict(self._consts)
+        definitely_assigned_after_condition = set(self._definitely_assigned_names)
 
-        then_ops, _, then_assigned = self._flatten_statements(
+        then_ops, _, then_assigned, then_definitely_assigned = self._flatten_statements(
             node.body, consts_after_condition
         )
-        else_ops, _, else_assigned = self._flatten_statements(
+        else_ops, _, else_assigned, else_definitely_assigned = self._flatten_statements(
             node.orelse, consts_after_condition
         )
 
@@ -357,6 +407,12 @@ class Flattener(ast.NodeVisitor):
             if name not in assigned_in_branches
         }
         self._assigned_names.update(assigned_in_branches)
+        if node.orelse:
+            self._definitely_assigned_names = (
+                then_definitely_assigned & else_definitely_assigned
+            )
+        else:
+            self._definitely_assigned_names = definitely_assigned_after_condition
 
     def _parse_range(self, node):
         match node:
@@ -389,21 +445,46 @@ class Flattener(ast.NodeVisitor):
             raise TypeError("for loop requires range() with constant bounds")
 
         start, end = bounds
+        self._validate_u64(start, "range start")
+        self._validate_u64(end, "range end")
         var = node.target.id
         had_const = var in self._consts
         prev_const = self._consts.get(var)
+        was_definitely_assigned = var in self._definitely_assigned_names
         was_loop_const = var in self._loop_consts
+        was_inline_const = var in self._inline_consts
         self._loop_consts.add(var)
+        iterations = range(start, end)
         try:
-            for i in range(start, end):
+            for i in iterations:
                 self._consts[var] = i
+                self._definitely_assigned_names.add(var)
                 for stmt in node.body:
                     self.visit(stmt)
         finally:
-            if had_const:
+            if was_loop_const:
+                if had_const:
+                    self._consts[var] = prev_const
+                else:
+                    self._consts.pop(var, None)
+            elif iterations:
+                self._consts[var] = iterations[-1]
+                self._inline_consts.add(var)
+                self._assigned_names.add(var)
+                self._definitely_assigned_names.add(var)
+            elif had_const:
                 self._consts[var] = prev_const
             else:
                 self._consts.pop(var, None)
+            if not iterations:
+                if was_inline_const:
+                    self._inline_consts.add(var)
+                else:
+                    self._inline_consts.discard(var)
+                if was_definitely_assigned:
+                    self._definitely_assigned_names.add(var)
+                else:
+                    self._definitely_assigned_names.discard(var)
             if not was_loop_const:
                 self._loop_consts.discard(var)
 
@@ -421,6 +502,11 @@ class Flattener(ast.NodeVisitor):
                 func=ast.Name(id=func_name),
                 args=[ast.Name(id=name)],
             ) if func_name == FUNC_CLAIM:
+                self._require_defined(name)
+                if name in self._inline_consts:
+                    value = self._validate_u64(self._consts[name], f"value of {name}")
+                    self._ops.append(Op(OP_SET, name, str(value)))
+                    self._inline_consts.discard(name)
                 # prevents DCE from eliminating the variable. CLAIM op is not emitted to VM
                 self._ops.append(Op(OP_CLAIM, name))
             case _:

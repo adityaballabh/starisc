@@ -23,5 +23,7 @@ def compile_to_op(source: str, constants: dict[str, int] | None = None) -> str:
 def compile_with_symbols(
     source: str, constants: dict[str, int] | None = None
 ) -> tuple[str, dict[str, str]]:
-    ops = compile_first_stage(source, constants)
-    return Backend().run_with_symbols(ops)
+    tree = ast.parse(source)
+    flattener = Flattener(constants)
+    ops = flattener.run(tree)
+    return Backend().run_with_symbols(ops, flattener.assigned_names)

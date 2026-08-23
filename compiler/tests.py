@@ -1,6 +1,9 @@
 import unittest
+from tempfile import TemporaryDirectory
 from pathlib import Path
+from unittest.mock import patch
 
+from .__main__ import main as compiler_main
 from .backend import (
     allocate_registers,
     compute_liveness,
@@ -10,7 +13,7 @@ from .backend import (
     optimize_ops,
 )
 from .op import Op
-from .pipeline import compile_first_stage, compile_to_op
+from .pipeline import compile_first_stage, compile_to_op, compile_with_symbols
 
 
 def read(name):
@@ -189,9 +192,30 @@ class TestModPow(unittest.TestCase):
             [
                 Op("SET", "a", "7"),
                 Op("SET", "m", "95"),
-                Op("SET", "res", "1"),
+                Op("SET", "t0", "1"),
+                Op("MOD", "res", "t0", "m"),
             ],
         )
+
+    def test_mod_pow_zero_applies_modulus(self):
+        self.assertEqual(
+            compile_first_stage("res = (7 ** 0) % 1\nclaim(res)")[-2:],
+            [Op("MOD", "res", "t2", "t1"), Op("CLAIM", "res")],
+        )
+
+    def test_mod_pow_one_applies_modulus(self):
+        self.assertEqual(
+            compile_first_stage("res = (7 ** 1) % 5\nclaim(res)"),
+            [
+                Op("SET", "t0", "7"),
+                Op("SET", "t1", "5"),
+                Op("MOD", "res", "t0", "t1"),
+                Op("CLAIM", "res"),
+            ],
+        )
+
+    def test_mod_pow_zero_modulus_is_not_optimized_away(self):
+        self.assertIn("MOD", compile_to_op("res = (7 ** 0) % 0\nclaim(res)"))
 
     def test_mod_pow_five(self):
         self.assertEqual(
@@ -439,6 +463,10 @@ class TestUnsupported(unittest.TestCase):
     def test_unsupported_target(self):
         with self.assertRaises(TypeError):
             compile_first_stage("j, k = 10, 20")
+
+    def test_chained_assignment_raises(self):
+        with self.assertRaisesRegex(TypeError, "chained assignment"):
+            compile_first_stage("a = b = 1")
 
     def test_unsupported_expression(self):
         with self.assertRaises(NotImplementedError):
@@ -754,6 +782,10 @@ class TestInputs(unittest.TestCase):
         with self.assertRaises(TypeError):
             compile_first_stage("x = private(1.5)")
 
+    def test_out_of_u64_slot_raises(self):
+        with self.assertRaises(TypeError):
+            compile_first_stage(f"x = private({1 << 64})")
+
     def test_private_input_emits_read_priv(self):
         self.assertEqual(
             compile_to_op("x = private(0)\ny = private(1)\nassert x == y"),
@@ -792,6 +824,132 @@ class TestClaim(unittest.TestCase):
     def test_without_claim_dce_removes(self):
         op = compile_to_op("x = private(0)\ny = private(1)\nz = x + y")
         self.assertEqual(op, "")
+
+
+class TestNameValidation(unittest.TestCase):
+    def test_user_name_does_not_collide_with_temporary(self):
+        source = "t1 = 10\ny = t1 + (1 + 2)\nclaim(y)"
+        self.assertEqual(
+            compile_first_stage(source),
+            [
+                Op("SET", "t1", "10"),
+                Op("SET", "t0", "1"),
+                Op("SET", "t2", "2"),
+                Op("ADD", "t3", "t0", "t2"),
+                Op("ADD", "y", "t1", "t3"),
+                Op("CLAIM", "y"),
+            ],
+        )
+        self.assertEqual(
+            compile_to_op(source),
+            "SET r1 10\nSET r2 1\nSET r3 2\nADD r2 r2 r3\nADD r1 r1 r2",
+        )
+        _, symbols = compile_with_symbols(source)
+        self.assertIn("t1", symbols)
+
+    def test_t_prefixed_user_names_remain_in_symbols(self):
+        _, symbols = compile_with_symbols(
+            "total = private(0)\n"
+            "temperature = public(0)\n"
+            "claim(total)\n"
+            "claim(temperature)"
+        )
+        self.assertIn("total", symbols)
+        self.assertIn("temperature", symbols)
+
+    def test_undefined_runtime_use_raises(self):
+        with self.assertRaisesRegex(NameError, "missing"):
+            compile_first_stage("x = missing + 1\nclaim(x)")
+
+    def test_undefined_claim_raises(self):
+        with self.assertRaisesRegex(NameError, "missing"):
+            compile_first_stage("claim(missing)")
+
+    def test_if_else_defines_name_on_both_paths(self):
+        ops = compile_first_stage(
+            "flag = private(0)\nif flag:\n    x = 1\nelse:\n    x = 2\nclaim(x)"
+        )
+        self.assertEqual(ops[-1], Op("CLAIM", "x"))
+
+    def test_if_else_requires_name_on_both_paths(self):
+        with self.assertRaisesRegex(NameError, "x"):
+            compile_first_stage(
+                "flag = private(0)\nif flag:\n    x = 1\nelse:\n    y = 2\nclaim(x)"
+            )
+
+    def test_if_without_else_does_not_define_name(self):
+        with self.assertRaisesRegex(NameError, "x"):
+            compile_first_stage("flag = private(0)\nif flag:\n    x = 1\nclaim(x)")
+
+    def test_zero_iteration_range_does_not_define_name(self):
+        with self.assertRaisesRegex(NameError, "x"):
+            compile_first_stage("for i in range(0):\n    x = 1\nclaim(x)")
+
+    def test_nonzero_range_defines_name(self):
+        self.assertEqual(
+            compile_first_stage("for i in range(1):\n    x = 1\nclaim(x)"),
+            [Op("SET", "x", "1"), Op("CLAIM", "x")],
+        )
+
+
+class TestRuntimeLiterals(unittest.TestCase):
+    def test_invalid_runtime_literals_raise(self):
+        invalid_sources = [
+            "x = 1.5",
+            'x = "value"',
+            "x = True",
+            "x = -1",
+            f"x = {1 << 64}",
+        ]
+        for source in invalid_sources:
+            with (
+                self.subTest(source=source),
+                self.assertRaises((TypeError, ValueError)),
+            ):
+                compile_first_stage(source)
+
+    def test_string_const_name_remains_valid(self):
+        self.assertEqual(
+            compile_first_stage('N = const("N")\nx = N\nclaim(x)', {"N": 3}),
+            [Op("SET", "x", "3"), Op("CLAIM", "x")],
+        )
+
+    def test_invalid_cli_const_runtime_value_raises(self):
+        with self.assertRaises(ValueError):
+            compile_first_stage('N = const("N")\nx = N', {"N": -1})
+
+    def test_invalid_cli_const_claim_value_raises(self):
+        with self.assertRaises(ValueError):
+            compile_first_stage('N = const("N")\nclaim(N)', {"N": -1})
+
+    def test_invalid_cli_const_slot_raises(self):
+        with self.assertRaises(TypeError):
+            compile_first_stage('N = const("N")\nx = private(N)', {"N": 1 << 64})
+
+    def test_invalid_cli_const_range_bound_raises(self):
+        with self.assertRaises(ValueError):
+            compile_first_stage(
+                'N = const("N")\nfor i in range(N):\n    x = 1', {"N": -1}
+            )
+
+
+class TestSymbolArtifacts(unittest.TestCase):
+    def test_empty_symbols_replace_stale_sidecar(self):
+        with TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            source_path = temp_path / "program.py"
+            symbols_path = temp_path / "program.symbols"
+            argv = ["compiler", str(source_path), "--out-dir", temp_dir]
+
+            source_path.write_text("total = private(0)\nclaim(total)\n")
+            with patch("sys.argv", argv):
+                compiler_main()
+            self.assertIn("total ", symbols_path.read_text())
+
+            source_path.write_text("unused = 1\n")
+            with patch("sys.argv", argv):
+                compiler_main()
+            self.assertEqual(symbols_path.read_text(), "")
 
 
 class TestForLoop(unittest.TestCase):

@@ -1,13 +1,14 @@
 use crate::public_inputs::{
     PublicInputs, P_CONST, P_IS_ADD, P_IS_ASSERT_EQ, P_IS_JZ, P_IS_LT, P_IS_MOD, P_IS_MUL,
-    P_IS_NOP, P_IS_READ_PUB, P_IS_SET, P_IS_SUB, P_OFFSET, P_RES_BASE, P_SRC1_BASE, P_SRC2_BASE,
+    P_IS_NOP, P_IS_READ_PRIV, P_IS_READ_PUB, P_IS_SET, P_IS_SUB, P_OFFSET, P_RES_BASE, P_SRC1_BASE,
+    P_SRC2_BASE,
 };
 use crate::{
     Felt, ACTIVE_BOOL_CON, ACTIVE_COL, ASSERT_EQ_CON, COND_BOOL_CON, COND_MATCH_CON,
-    LT_RES_BOOL_CON, MOD_REL_CON, NUM_CONSTRAINTS, NUM_RANGE_BITS, NUM_REGISTERS, QUOT_COL,
-    RANGE_BITS_BASE, RANGE_BITS_CON_BASE, RANGE_RECON_CON, RES_COL, SKIP_ACTIVE_ZERO_CON,
-    SKIP_COUNTDOWN_COL, SKIP_COUNTDOWN_CON, SKIP_COUNTDOWN_INV_COL, SKIP_COUNTDOWN_INV_CON,
-    SRC1_COL, SRC2_COL, TRACE_WIDTH, WRAP_BITS_BASE, WRAP_BITS_CON_BASE,
+    LT_RES_BOOL_CON, MOD_REL_CON, MOD_RES_BITS_BASE, MOD_RES_BITS_CON_BASE, NUM_CONSTRAINTS,
+    NUM_RANGE_BITS, NUM_REGISTERS, QUOT_COL, RANGE_BITS_BASE, RANGE_BITS_CON_BASE, RANGE_RECON_CON,
+    RES_COL, SKIP_ACTIVE_ZERO_CON, SKIP_COUNTDOWN_COL, SKIP_COUNTDOWN_CON, SKIP_COUNTDOWN_INV_COL,
+    SKIP_COUNTDOWN_INV_CON, SRC1_COL, SRC2_COL, TRACE_WIDTH, WRAP_BITS_BASE, WRAP_BITS_CON_BASE,
 };
 use winterfell::math::FieldElement;
 use winterfell::{
@@ -29,6 +30,7 @@ impl Air for VmAir {
     fn new(trace_info: TraceInfo, pub_inputs: PublicInputs, options: ProofOptions) -> Self {
         let trace_len = pub_inputs.trace_len;
         let has_result_constraint = pub_inputs.has_result_constraint();
+        let constrains_res = has_result_constraint || pub_inputs.has_mod;
 
         // cyclic degrees account for periodic instruction columns
         let cyclic = |base| TransitionConstraintDegree::with_cycles(base, vec![trace_len]);
@@ -46,9 +48,9 @@ impl Air for VmAir {
         }
         degrees[RES_COL] = if pub_inputs.has_taken_jz && pub_inputs.has_mul {
             cyclic(3)
-        } else if (pub_inputs.has_taken_jz && has_result_constraint) || pub_inputs.has_mul {
+        } else if (pub_inputs.has_taken_jz && constrains_res) || pub_inputs.has_mul {
             cyclic(2)
-        } else if has_result_constraint {
+        } else if constrains_res {
             cyclic(1)
         } else {
             TransitionConstraintDegree::new(1)
@@ -89,6 +91,7 @@ impl Air for VmAir {
             if pub_inputs.wrap_bits_used & (1u64 << i) != 0 {
                 degrees[WRAP_BITS_CON_BASE + i] = TransitionConstraintDegree::new(2);
             }
+            degrees[MOD_RES_BITS_CON_BASE + i] = TransitionConstraintDegree::new(2);
         }
         if pub_inputs.has_lt {
             degrees[LT_RES_BOOL_CON] = cyclic(if pub_inputs.has_taken_jz { 3 } else { 2 });
@@ -130,8 +133,10 @@ impl Air for VmAir {
         let skip_inv = curr_row[SKIP_COUNTDOWN_INV_COL];
         let two_64 = E::from(Felt::from(u64::MAX)) + E::ONE;
         let mut wrap_sum = E::ZERO;
+        let mut mod_res_sum = E::ZERO;
         for i in 0..NUM_RANGE_BITS {
             wrap_sum += E::from(Felt::from(1u64 << i)) * next_row[WRAP_BITS_BASE + i];
+            mod_res_sum += E::from(Felt::from(1u64 << i)) * next_row[MOD_RES_BITS_BASE + i];
         }
         // pad degrees without adding trace constraints
         let degree_pad = instr_row[P_IS_NOP] * (instr_row[P_IS_NOP] - E::ONE);
@@ -155,8 +160,13 @@ impl Air for VmAir {
         let is_mod = instr_row[P_IS_MOD];
         let is_jz = instr_row[P_IS_JZ];
         let is_assert_eq = instr_row[P_IS_ASSERT_EQ];
-        let checks_res_range =
-            instr_row[P_IS_SET] + is_add + is_sub + is_mul + is_assert_eq + is_jz;
+        let checks_res_range = instr_row[P_IS_SET]
+            + instr_row[P_IS_READ_PRIV]
+            + is_add
+            + is_sub
+            + is_mul
+            + is_assert_eq
+            + is_jz;
 
         result[RES_COL] = active
             * (instr_row[P_IS_SET] * (res_val - instr_row[P_CONST])
@@ -164,6 +174,7 @@ impl Air for VmAir {
                 + is_add * (res_val + wrap_sum * two_64 - src1_val - src2_val)
                 + is_sub * (res_val - src1_val + src2_val - wrap_sum * two_64)
                 + is_mul * (res_val + wrap_sum * two_64 - src1_val * src2_val)
+                + is_mod * (res_val - mod_res_sum)
                 + is_assert_eq * (res_val - E::ONE)
                 + is_jz * (res_val - E::ONE));
         if self.public_inputs.has_taken_jz {
@@ -193,7 +204,9 @@ impl Air for VmAir {
             result[ASSERT_EQ_CON] += degree_pad_2;
         }
         if self.public_inputs.has_mod {
-            result[QUOT_COL] = (E::ONE - is_mod) * (quot_val - E::ONE);
+            result[QUOT_COL] = quot_val - E::ONE - is_mod * wrap_sum;
+            // q, src2, and res are u64, so src2*q + res is at most
+            // 2^128 - 2^64 - 1, below the f128 modulus.
             result[MOD_REL_CON] =
                 active * is_mod * (src1_val - (src2_val * (quot_val - E::ONE) + res_val));
             if self.public_inputs.has_taken_jz {
@@ -210,6 +223,8 @@ impl Air for VmAir {
             result[RANGE_BITS_CON_BASE + i] = bit * (bit - E::ONE);
             let wrap_bit = next_row[WRAP_BITS_BASE + i];
             result[WRAP_BITS_CON_BASE + i] = wrap_bit * (wrap_bit - E::ONE);
+            let mod_res_bit = next_row[MOD_RES_BITS_BASE + i];
+            result[MOD_RES_BITS_CON_BASE + i] = mod_res_bit * (mod_res_bit - E::ONE);
         }
 
         // lt res should be 0 or 1
